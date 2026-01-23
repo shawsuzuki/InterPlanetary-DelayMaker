@@ -1,0 +1,66 @@
+services:
+  delaybox:
+    build: ./delaybox
+    container_name: delaybox
+    privileged: true
+    environment:
+      - DELAY_EARTH_TO_MARS=10    # seconds (set to 1200 for 20 min)
+      - DELAY_MARS_TO_EARTH=10    # seconds
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis_data:/data
+
+  earth:
+    image: alpine:latest
+    container_name: earth
+    privileged: true
+    network_mode: "none"
+    command: >
+      sh -c "
+        while [ ! -e /tmp/net_ready ]; do sleep 0.5; done &&
+        echo 'Network ready, Earth node starting...' &&
+        sleep infinity
+      "
+    volumes:
+      - earth_ready:/tmp
+
+  mars:
+    image: alpine:latest
+    container_name: mars
+    privileged: true
+    network_mode: "none"
+    command: >
+      sh -c "
+        while [ ! -e /tmp/net_ready ]; do sleep 0.5; done &&
+        echo 'Network ready, Mars node starting...' &&
+        sleep infinity
+      "
+    volumes:
+      - mars_ready:/tmp
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  redis_data:
+  earth_ready:
+  mars_ready:
