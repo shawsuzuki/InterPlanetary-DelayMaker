@@ -3,6 +3,7 @@ services:
     build: ./delaybox
     container_name: delaybox
     privileged: true
+    pid: host
     environment:
       - DELAY_EARTH_TO_MARS=10    # seconds (set to 1200 for 20 min)
       - DELAY_MARS_TO_EARTH=10    # seconds
