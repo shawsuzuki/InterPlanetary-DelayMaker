@@ -10,6 +10,8 @@ cleanup() {
     ip link del veth-mars 2>/dev/null || true
     ip link del veth-earth-moon 2>/dev/null || true
     ip link del veth-moon 2>/dev/null || true
+    ip link del veth-earth-custom 2>/dev/null || true
+    ip link del veth-custom 2>/dev/null || true
     rm -f /tmp/delaybox_ready
 }
 trap cleanup EXIT
@@ -54,11 +56,28 @@ if [ -n "$MOON_PID" ] && [ "$MOON_PID" != "0" ]; then
     echo "Moon PID: $MOON_PID"
 fi
 
+# Check for Custom container (optional)
+CUSTOM_PID=$(docker inspect -f '{{.State.Pid}}' custom 2>/dev/null || echo "")
+CUSTOM_RETRY=0
+while [ -n "$CUSTOM_PID" ] && [ "$CUSTOM_PID" = "0" ] && [ $CUSTOM_RETRY -lt 10 ]; do
+    CUSTOM_RETRY=$((CUSTOM_RETRY + 1))
+    sleep 1
+    CUSTOM_PID=$(docker inspect -f '{{.State.Pid}}' custom 2>/dev/null || echo "")
+done
+
+CUSTOM_ENABLED=false
+if [ -n "$CUSTOM_PID" ] && [ "$CUSTOM_PID" != "0" ]; then
+    CUSTOM_ENABLED=true
+    echo "Custom PID: $CUSTOM_PID"
+fi
+
 # Clean up any existing veth pairs
 ip link del veth-earth 2>/dev/null || true
 ip link del veth-mars 2>/dev/null || true
 ip link del veth-earth-moon 2>/dev/null || true
 ip link del veth-moon 2>/dev/null || true
+ip link del veth-earth-custom 2>/dev/null || true
+ip link del veth-custom 2>/dev/null || true
 
 # ── Earth ↔ Mars link ────────────────────────────────────────────────────────
 echo "Creating Earth↔Mars veth pair..."
@@ -115,6 +134,37 @@ if [ "$MOON_ENABLED" = true ]; then
     MOON_FLAGS="-moon-src-iface veth-earth-moon -moon-iface veth-moon -delay-to-moon ${DELAY_EARTH_TO_MOON:-1} -delay-from-moon ${DELAY_MOON_TO_EARTH:-1}"
 fi
 
+# ── Earth ↔ Custom link (optional) ──────────────────────────────────────────
+CUSTOM_FLAGS=""
+if [ "$CUSTOM_ENABLED" = true ]; then
+    echo "Creating Earth↔Custom veth pair..."
+
+    ip link add veth-earth-custom type veth peer name eth2-earth
+    ip link add veth-custom type veth peer name eth0-custom
+
+    ip link set eth2-earth netns $EARTH_PID
+    ip link set eth0-custom netns $CUSTOM_PID
+
+    ip link set veth-earth-custom up
+    ip link set veth-earth-custom promisc on
+    ip link set veth-custom up
+    ip link set veth-custom promisc on
+
+    # Earth gets a third interface (eth2) on a different subnet for Custom
+    nsenter -t $EARTH_PID -n ip link set eth2-earth name eth2
+    nsenter -t $EARTH_PID -n ip addr add 10.2.0.2/24 dev eth2
+    nsenter -t $EARTH_PID -n ip link set eth2 up
+
+    nsenter -t $CUSTOM_PID -n ip link set eth0-custom name eth0
+    nsenter -t $CUSTOM_PID -n ip addr add 10.2.0.3/24 dev eth0
+    nsenter -t $CUSTOM_PID -n ip link set eth0 up
+    nsenter -t $CUSTOM_PID -n ip link set lo up
+
+    docker exec custom touch /tmp/net_ready 2>/dev/null || true
+
+    CUSTOM_FLAGS="-custom-src-iface veth-earth-custom -custom-iface veth-custom -delay-to-custom ${DELAY_EARTH_TO_CUSTOM:-5} -delay-from-custom ${DELAY_CUSTOM_TO_EARTH:-5}"
+fi
+
 # Signal that network is ready
 docker exec earth touch /tmp/net_ready 2>/dev/null || true
 docker exec mars touch /tmp/net_ready 2>/dev/null || true
@@ -128,6 +178,10 @@ if [ "$MOON_ENABLED" = true ]; then
     echo "  Moon:  10.1.0.3/24 (eth0)"
     echo "  Earth→Moon: 10.1.0.2/24 (eth1)"
 fi
+if [ "$CUSTOM_ENABLED" = true ]; then
+    echo "  Custom: 10.2.0.3/24 (eth0)"
+    echo "  Earth→Custom: 10.2.0.2/24 (eth2)"
+fi
 echo ""
 echo "Starting delay daemon..."
 
@@ -138,4 +192,5 @@ exec /usr/local/bin/delaybox \
     -redis "$REDIS_ADDR" \
     -delay-to-mars "${DELAY_EARTH_TO_MARS:-10}" \
     -delay-to-earth "${DELAY_MARS_TO_EARTH:-10}" \
-    $MOON_FLAGS
+    $MOON_FLAGS \
+    $CUSTOM_FLAGS

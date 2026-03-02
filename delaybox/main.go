@@ -40,11 +40,15 @@ func main() {
 	marsIface := flag.String("mars-iface", "veth-mars", "Mars-side interface")
 	moonSrcIface := flag.String("moon-src-iface", "", "Earth-side interface (Moon link, optional)")
 	moonIface := flag.String("moon-iface", "", "Moon-side interface (optional)")
+	customSrcIface := flag.String("custom-src-iface", "", "Earth-side interface (Custom link, optional)")
+	customIface := flag.String("custom-iface", "", "Custom-side interface (optional)")
 	redisAddr := flag.String("redis", "localhost:6379", "Redis address")
 	delayToMarsSec := flag.Int("delay-to-mars", 10, "Initial Earth→Mars delay (seconds)")
 	delayToEarthSec := flag.Int("delay-to-earth", 10, "Initial Mars→Earth delay (seconds)")
 	delayToMoonSec := flag.Int("delay-to-moon", 1, "Initial Earth→Moon delay (seconds)")
 	delayFromMoonSec := flag.Int("delay-from-moon", 1, "Initial Moon→Earth delay (seconds)")
+	delayToCustomSec := flag.Int("delay-to-custom", 5, "Initial Earth→Custom delay (seconds)")
+	delayFromCustomSec := flag.Int("delay-from-custom", 5, "Initial Custom→Earth delay (seconds)")
 	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -97,6 +101,29 @@ func main() {
 
 		log.Printf("  Earth↔Moon: %s / %s (delay: %ds / %ds)",
 			*moonSrcIface, *moonIface, *delayToMoonSec, *delayFromMoonSec)
+	}
+
+	// ── Earth ↔ Custom link (optional) ───────────────────────────────────
+	if *customSrcIface != "" && *customIface != "" {
+		toCustom := newLink("earth→custom", "delay:to_custom", "config:delay_to_custom", *delayToCustomSec)
+		fromCustom := newLink("custom→earth", "delay:from_custom", "config:delay_from_custom", *delayFromCustomSec)
+
+		rdb.Del(ctx, toCustom.queueKey, fromCustom.queueKey)
+		setInitialConfig(ctx, rdb, toCustom)
+		setInitialConfig(ctx, rdb, fromCustom)
+
+		customSrcHandle := openHandle(*customSrcIface)
+		customHandle := openHandle(*customIface)
+
+		go receiveLoop(ctx, rdb, customSrcHandle, toCustom)
+		go sendLoop(ctx, rdb, customHandle, toCustom)
+		go receiveLoop(ctx, rdb, customHandle, fromCustom)
+		go sendLoop(ctx, rdb, customSrcHandle, fromCustom)
+
+		allLinks = append(allLinks, toCustom, fromCustom)
+
+		log.Printf("  Earth↔Custom: %s / %s (delay: %ds / %ds)",
+			*customSrcIface, *customIface, *delayToCustomSec, *delayFromCustomSec)
 	}
 
 	// Start config reload

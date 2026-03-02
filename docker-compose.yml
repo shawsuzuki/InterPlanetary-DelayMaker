@@ -7,8 +7,10 @@ services:
     environment:
       - DELAY_EARTH_TO_MARS=10    # seconds (set to 1200 for 20 min)
       - DELAY_MARS_TO_EARTH=10    # seconds
-      - DELAY_EARTH_TO_MOON=1     # seconds (Moon: ~1.3s realistic)
+      - DELAY_EARTH_TO_MOON=1     # seconds (Moon: ~1.28s realistic)
       - DELAY_MOON_TO_EARTH=1     # seconds
+      - DELAY_EARTH_TO_CUSTOM=5   # seconds (custom link)
+      - DELAY_CUSTOM_TO_EARTH=5   # seconds
       - REDIS_ADDR=redis:6379
     depends_on:
       redis:
@@ -86,6 +88,20 @@ services:
     volumes:
       - moon_ready:/tmp
 
+  custom:
+    image: alpine:latest
+    container_name: custom
+    privileged: true
+    network_mode: "none"
+    command: >
+      sh -c "
+        while [ ! -e /tmp/net_ready ]; do sleep 0.5; done &&
+        echo 'Network ready, Custom node starting...' &&
+        sleep infinity
+      "
+    volumes:
+      - custom_ready:/tmp
+
 networks:
   internal:
     driver: bridge
@@ -95,3 +111,4 @@ volumes:
   earth_ready:
   mars_ready:
   moon_ready:
+  custom_ready:

@@ -27,6 +27,114 @@
     margin-bottom: 24px;
   }
 
+  /* ── Visualization ────────────────────────────────── */
+  .vis {
+    max-width: 720px;
+    margin: 0 auto 24px;
+    background: #141b2a;
+    border: 1px solid #1e2a3a;
+    border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .vis-link {
+    display: flex;
+    align-items: center;
+    margin-bottom: 18px;
+  }
+  .vis-link:last-child { margin-bottom: 0; }
+  .vis-node {
+    text-align: center;
+    width: 60px;
+    flex-shrink: 0;
+  }
+  .vis-node-dot {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    margin: 0 auto 4px;
+    border: 2px solid;
+  }
+  .vis-node-label {
+    font-size: 0.65em;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .vis-node-ip {
+    font-size: 0.55em;
+    color: #4a5a6a;
+  }
+  .c-earth .vis-node-dot { background: #1a3060; border-color: #4a9eff; }
+  .c-earth .vis-node-label { color: #4a9eff; }
+  .c-mars .vis-node-dot { background: #3a1a10; border-color: #ff6a4a; }
+  .c-mars .vis-node-label { color: #ff6a4a; }
+  .c-moon .vis-node-dot { background: #2a2a1a; border-color: #c8c8aa; }
+  .c-moon .vis-node-label { color: #c8c8aa; }
+  .c-custom .vis-node-dot { background: #1a2a1a; border-color: #4adf8a; }
+  .c-custom .vis-node-label { color: #4adf8a; }
+
+  .vis-track {
+    flex: 1;
+    height: 48px;
+    position: relative;
+    margin: 0 12px;
+  }
+  .vis-track-line {
+    position: absolute;
+    top: 50%; left: 0; right: 0;
+    height: 1px;
+    background: #2a3a4a;
+  }
+  .vis-lane {
+    position: absolute;
+    left: 0; right: 0;
+    height: 10px;
+    overflow: hidden;
+  }
+  .vis-lane.fwd { top: 8px; }
+  .vis-lane.rev { bottom: 8px; }
+  .vis-delay-label {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.65em;
+    color: #5a7a9a;
+    background: #141b2a;
+    padding: 0 8px;
+    white-space: nowrap;
+  }
+
+  .vis-dot {
+    position: absolute;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    top: 2px;
+    display: none;
+  }
+  .vis-dot.fwd {
+    background: #4a9eff;
+    animation: dot-fwd linear infinite;
+  }
+  .vis-dot.rev {
+    background: #ff6a4a;
+    animation: dot-rev linear infinite;
+  }
+  .vis-link .c-moon ~ .vis-track .vis-dot.rev,
+  .vis-link:nth-child(2) .vis-dot.rev { background: #c8c8aa; }
+  .vis-link:nth-child(3) .vis-dot.rev { background: #4adf8a; }
+
+  @keyframes dot-fwd {
+    0% { left: -6px; opacity: 0; }
+    5% { opacity: 1; }
+    95% { opacity: 1; }
+    100% { left: calc(100% + 6px); opacity: 0; }
+  }
+  @keyframes dot-rev {
+    0% { right: -6px; opacity: 0; }
+    5% { opacity: 1; }
+    95% { opacity: 1; }
+    100% { right: calc(100% + 6px); opacity: 0; }
+  }
+
+  /* ── Cards ────────────────────────────────────────── */
   .section-label {
     font-size: 0.8em;
     color: #5a7a9a;
@@ -39,48 +147,45 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 12px;
     max-width: 720px;
     margin: 0 auto 20px;
   }
   .card {
     background: #141b2a;
     border: 1px solid #1e2a3a;
-    border-radius: 12px;
-    padding: 20px;
+    border-radius: 10px;
+    padding: 14px 8px;
     text-align: center;
   }
   .card-label {
-    font-size: 0.75em;
+    font-size: 0.6em;
     color: #5a7a9a;
     text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
   }
   .card-value {
-    font-size: 2.2em;
+    font-size: 1.6em;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
   .card-unit {
-    font-size: 0.5em;
+    font-size: 0.45em;
     color: #5a7a9a;
-    margin-left: 4px;
-  }
-  .card-sub {
-    font-size: 0.8em;
-    color: #4a5a6a;
-    margin-top: 4px;
+    margin-left: 2px;
   }
   .earth { color: #4a9eff; }
   .mars { color: #ff6a4a; }
   .moon { color: #c8c8aa; }
+  .custom-color { color: #4adf8a; }
   .queue { color: #8a8aff; }
 
-  .moon-section { display: none; }
-  .moon-section.visible { display: block; }
+  .hidden-section { display: none; }
+  .hidden-section.visible { display: block; }
 
+  /* ── Presets ──────────────────────────────────────── */
   .presets {
     max-width: 720px;
     margin: 0 auto 24px;
@@ -121,10 +226,11 @@
     margin-bottom: 4px;
   }
   .preset-delay {
-    font-size: 0.8em;
+    font-size: 0.75em;
     color: #5a7a9a;
   }
 
+  /* ── Custom Delay ─────────────────────────────────── */
   .custom {
     max-width: 720px;
     margin: 0 auto 24px;
@@ -143,22 +249,22 @@
   .custom-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 10px;
   }
   .custom-group label {
     display: block;
-    font-size: 0.8em;
+    font-size: 0.75em;
     color: #7a8a9a;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
   .custom-group input {
     width: 100%;
     background: #0a0e17;
     border: 1px solid #1e2a3a;
     border-radius: 6px;
-    padding: 8px 12px;
+    padding: 7px 10px;
     color: #e0e6f0;
-    font-size: 1em;
+    font-size: 0.95em;
     font-family: inherit;
   }
   .custom-group input:focus {
@@ -178,6 +284,63 @@
   }
   .apply-btn:hover { background: #2a4a7a; }
 
+  /* ── Commands ─────────────────────────────────────── */
+  .commands {
+    max-width: 720px;
+    margin: 0 auto 24px;
+    background: #141b2a;
+    border: 1px solid #1e2a3a;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .commands h2 {
+    font-size: 0.85em;
+    color: #5a7a9a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+  }
+  .cmd-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 6px 0;
+  }
+  .cmd-row:last-child { margin-bottom: 0; }
+  .cmd-label {
+    font-size: 0.7em;
+    color: #7a8a9a;
+    min-width: 80px;
+    flex-shrink: 0;
+  }
+  .cmd-code {
+    flex: 1;
+    background: #0a0e17;
+    border: 1px solid #1e2a3a;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 0.75em;
+    color: #a0b0c0;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .copy-btn {
+    background: #1a2a3a;
+    border: 1px solid #2a3a4a;
+    border-radius: 6px;
+    padding: 4px 10px;
+    color: #8a9aaa;
+    cursor: pointer;
+    font-size: 0.7em;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .copy-btn:hover { background: #2a3a5a; color: #c0d0e0; }
+  .copy-btn.copied { background: #1a3a2a; border-color: #2a6a3a; color: #4adf8a; }
+
+  /* ── Status ───────────────────────────────────────── */
   .status-bar {
     max-width: 720px;
     margin: 0 auto;
@@ -201,59 +364,143 @@
 <h1>INTERPLANETARY DELAY MAKER</h1>
 <p class="subtitle">L2 Network Delay Emulator &mdash; WIDE Project Space-WG</p>
 
-<!-- Mars Section -->
+<!-- ── Visualization ─────────────────────────────── -->
+<div class="vis">
+  <!-- Mars link -->
+  <div class="vis-link" id="vis-mars-link">
+    <div class="vis-node c-earth">
+      <div class="vis-node-dot"></div>
+      <div class="vis-node-label">EARTH</div>
+      <div class="vis-node-ip">10.0.0.2</div>
+    </div>
+    <div class="vis-track">
+      <div class="vis-track-line"></div>
+      <div class="vis-lane fwd" id="mars-fwd"></div>
+      <div class="vis-lane rev" id="mars-rev"></div>
+      <div class="vis-delay-label" id="mars-vis-delay">--</div>
+    </div>
+    <div class="vis-node c-mars">
+      <div class="vis-node-dot"></div>
+      <div class="vis-node-label">MARS</div>
+      <div class="vis-node-ip">10.0.0.3</div>
+    </div>
+  </div>
+
+  <!-- Moon link -->
+  <div class="vis-link hidden-section" id="vis-moon-link">
+    <div class="vis-node c-earth">
+      <div class="vis-node-dot"></div>
+      <div class="vis-node-label">EARTH</div>
+      <div class="vis-node-ip">10.1.0.2</div>
+    </div>
+    <div class="vis-track">
+      <div class="vis-track-line"></div>
+      <div class="vis-lane fwd" id="moon-fwd"></div>
+      <div class="vis-lane rev" id="moon-rev"></div>
+      <div class="vis-delay-label" id="moon-vis-delay">--</div>
+    </div>
+    <div class="vis-node c-moon">
+      <div class="vis-node-dot"></div>
+      <div class="vis-node-label">MOON</div>
+      <div class="vis-node-ip">10.1.0.3</div>
+    </div>
+  </div>
+
+  <!-- Custom link -->
+  <div class="vis-link hidden-section" id="vis-custom-link">
+    <div class="vis-node c-earth">
+      <div class="vis-node-dot"></div>
+      <div class="vis-node-label">EARTH</div>
+      <div class="vis-node-ip">10.2.0.2</div>
+    </div>
+    <div class="vis-track">
+      <div class="vis-track-line"></div>
+      <div class="vis-lane fwd" id="custom-fwd"></div>
+      <div class="vis-lane rev" id="custom-rev"></div>
+      <div class="vis-delay-label" id="custom-vis-delay">--</div>
+    </div>
+    <div class="vis-node c-custom">
+      <div class="vis-node-dot"></div>
+      <div class="vis-node-label">CUSTOM</div>
+      <div class="vis-node-ip">10.2.0.3</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Mars Cards ────────────────────────────────── -->
 <div class="section-label">Mars Link</div>
 <div class="grid">
   <div class="card">
-    <div class="card-label">Earth &rarr; Mars Delay</div>
+    <div class="card-label">Earth &rarr; Mars</div>
     <div class="card-value earth" id="delay-mars">--<span class="card-unit">s</span></div>
-    <div class="card-sub" id="delay-mars-human"></div>
   </div>
   <div class="card">
-    <div class="card-label">Mars &rarr; Earth Delay</div>
+    <div class="card-label">Mars &rarr; Earth</div>
     <div class="card-value mars" id="delay-earth">--<span class="card-unit">s</span></div>
-    <div class="card-sub" id="delay-earth-human"></div>
   </div>
   <div class="card">
-    <div class="card-label">Queue: Earth &rarr; Mars</div>
+    <div class="card-label">Queue &rarr;</div>
     <div class="card-value queue" id="queue-mars">--<span class="card-unit">pkts</span></div>
   </div>
   <div class="card">
-    <div class="card-label">Queue: Mars &rarr; Earth</div>
+    <div class="card-label">Queue &larr;</div>
     <div class="card-value queue" id="queue-earth">--<span class="card-unit">pkts</span></div>
   </div>
 </div>
 
-<!-- Moon Section (shown when Moon is enabled) -->
-<div class="moon-section" id="moon-section">
+<!-- ── Moon Cards ────────────────────────────────── -->
+<div class="hidden-section" id="moon-section">
   <div class="section-label">Moon Link</div>
   <div class="grid">
     <div class="card">
-      <div class="card-label">Earth &rarr; Moon Delay</div>
+      <div class="card-label">Earth &rarr; Moon</div>
       <div class="card-value moon" id="delay-moon">--<span class="card-unit">s</span></div>
-      <div class="card-sub" id="delay-moon-human"></div>
     </div>
     <div class="card">
-      <div class="card-label">Moon &rarr; Earth Delay</div>
+      <div class="card-label">Moon &rarr; Earth</div>
       <div class="card-value moon" id="delay-from-moon">--<span class="card-unit">s</span></div>
-      <div class="card-sub" id="delay-from-moon-human"></div>
     </div>
     <div class="card">
-      <div class="card-label">Queue: Earth &rarr; Moon</div>
+      <div class="card-label">Queue &rarr;</div>
       <div class="card-value queue" id="queue-moon">--<span class="card-unit">pkts</span></div>
     </div>
     <div class="card">
-      <div class="card-label">Queue: Moon &rarr; Earth</div>
+      <div class="card-label">Queue &larr;</div>
       <div class="card-value queue" id="queue-from-moon">--<span class="card-unit">pkts</span></div>
     </div>
   </div>
 </div>
 
+<!-- ── Custom Cards ──────────────────────────────── -->
+<div class="hidden-section" id="custom-section">
+  <div class="section-label">Custom Link</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-label">Earth &rarr; Custom</div>
+      <div class="card-value custom-color" id="delay-custom">--<span class="card-unit">s</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Custom &rarr; Earth</div>
+      <div class="card-value custom-color" id="delay-from-custom">--<span class="card-unit">s</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Queue &rarr;</div>
+      <div class="card-value queue" id="queue-custom">--<span class="card-unit">pkts</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Queue &larr;</div>
+      <div class="card-value queue" id="queue-from-custom">--<span class="card-unit">pkts</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Presets ────────────────────────────────────── -->
 <div class="presets">
   <h2>Presets</h2>
   <div class="preset-grid" id="preset-grid"></div>
 </div>
 
+<!-- ── Custom Delay ──────────────────────────────── -->
 <div class="custom">
   <h2>Custom Delay</h2>
   <div class="custom-grid">
@@ -267,22 +514,76 @@
     </div>
     <div class="custom-group moon-input" style="display:none">
       <label>Earth &rarr; Moon (s)</label>
-      <input type="number" id="custom-moon" min="0" step="0.1" placeholder="seconds">
+      <input type="number" id="input-moon" min="0" step="0.1" placeholder="seconds">
     </div>
     <div class="custom-group moon-input" style="display:none">
       <label>Moon &rarr; Earth (s)</label>
-      <input type="number" id="custom-from-moon" min="0" step="0.1" placeholder="seconds">
+      <input type="number" id="input-from-moon" min="0" step="0.1" placeholder="seconds">
+    </div>
+    <div class="custom-group custom-input" style="display:none">
+      <label>Earth &rarr; Custom (s)</label>
+      <input type="number" id="input-custom" min="0" step="0.1" placeholder="seconds">
+    </div>
+    <div class="custom-group custom-input" style="display:none">
+      <label>Custom &rarr; Earth (s)</label>
+      <input type="number" id="input-from-custom" min="0" step="0.1" placeholder="seconds">
     </div>
   </div>
   <button class="apply-btn" onclick="applyCustom()">Apply</button>
 </div>
 
+<!-- ── Try It ────────────────────────────────────── -->
+<div class="commands">
+  <h2>Try It</h2>
+  <div class="cmd-row">
+    <span class="cmd-label">Ping Mars</span>
+    <code class="cmd-code">docker exec earth ping -W 30 10.0.0.3</code>
+    <button class="copy-btn" onclick="copyCmd(this)">Copy</button>
+  </div>
+  <div class="cmd-row hidden-section" id="cmd-moon">
+    <span class="cmd-label">Ping Moon</span>
+    <code class="cmd-code">docker exec earth ping -W 5 10.1.0.3</code>
+    <button class="copy-btn" onclick="copyCmd(this)">Copy</button>
+  </div>
+  <div class="cmd-row hidden-section" id="cmd-custom">
+    <span class="cmd-label">Ping Custom</span>
+    <code class="cmd-code">docker exec earth ping -W 30 10.2.0.3</code>
+    <button class="copy-btn" onclick="copyCmd(this)">Copy</button>
+  </div>
+  <div class="cmd-row">
+    <span class="cmd-label">Send file</span>
+    <code class="cmd-code">docker cp samples/mars_sol0.jpeg earth:/tmp/</code>
+    <button class="copy-btn" onclick="copyCmd(this)">Copy</button>
+  </div>
+  <div class="cmd-row">
+    <span class="cmd-label">NC to Mars</span>
+    <code class="cmd-code">docker exec mars sh -c "nc -l -p 9000 > /tmp/r.jpg" &</code>
+    <button class="copy-btn" onclick="copyCmd(this)">Copy</button>
+  </div>
+  <div class="cmd-row">
+    <span class="cmd-label"></span>
+    <code class="cmd-code">docker exec earth sh -c "nc 10.0.0.3 9000 < /tmp/mars_sol0.jpeg"</code>
+    <button class="copy-btn" onclick="copyCmd(this)">Copy</button>
+  </div>
+  <div class="cmd-row">
+    <span class="cmd-label">View logs</span>
+    <code class="cmd-code">docker compose logs -f delaybox</code>
+    <button class="copy-btn" onclick="copyCmd(this)">Copy</button>
+  </div>
+</div>
+
+<!-- ── Status ────────────────────────────────────── -->
 <div class="status-bar">
   <span class="status-dot" id="status-dot"></span>
   <span id="status-text">Connecting...</span>
 </div>
 
 <script>
+const MAX_DOTS = 8;
+let moonEnabled = false;
+let customEnabled = false;
+
+// ── Format helpers ──────────────────────────────────
 function formatDelay(secs) {
   if (secs < 60) return secs.toFixed(1) + 's';
   const m = Math.floor(secs / 60);
@@ -290,67 +591,117 @@ function formatDelay(secs) {
   return m + 'm ' + s + 's';
 }
 
-function formatHuman(secs, type) {
-  if (type === 'moon') {
-    if (secs < 0.1) return 'Disabled';
-    return 'RTT: ' + formatDelay(secs * 2);
-  }
-  if (secs < 0.1) return 'Disabled';
-  if (secs < 2) return 'RTT: ' + formatDelay(secs * 2);
-  if (secs < 60) return 'RTT: ' + formatDelay(secs * 2);
-  const m = Math.floor(secs / 60);
-  if (m < 5) return 'Mars at closest approach (~3 min)';
-  return 'Mars at far distance (~' + m + ' min one-way)';
+// ── Visualization ───────────────────────────────────
+function initDots() {
+  ['mars-fwd','mars-rev','moon-fwd','moon-rev','custom-fwd','custom-rev'].forEach(id => {
+    const lane = document.getElementById(id);
+    if (!lane) return;
+    for (let i = 0; i < MAX_DOTS; i++) {
+      const dot = document.createElement('div');
+      dot.className = 'vis-dot';
+      lane.appendChild(dot);
+    }
+  });
 }
 
-let currentPreset = null;
-let moonEnabled = false;
+function visDuration(delaySec) {
+  if (delaySec < 0.1) return 1.5;
+  return Math.max(1.5, Math.min(12, Math.log2(delaySec + 2)));
+}
 
+function updateLaneDots(laneId, count, delaySec, dir) {
+  const lane = document.getElementById(laneId);
+  if (!lane) return;
+  const dots = lane.querySelectorAll('.vis-dot');
+  const dur = visDuration(delaySec);
+  const visible = Math.min(Math.max(count, 0), MAX_DOTS);
+  dots.forEach((dot, i) => {
+    if (i < visible) {
+      dot.style.display = '';
+      dot.className = 'vis-dot ' + dir;
+      dot.style.animationDuration = dur + 's';
+      dot.style.animationDelay = -(dur * i / MAX_DOTS) + 's';
+    } else {
+      dot.style.display = 'none';
+    }
+  });
+}
+
+function updateLinkVis(prefix, delayFwd, delayRev, qFwd, qRev) {
+  updateLaneDots(prefix + '-fwd', qFwd, delayFwd, 'fwd');
+  updateLaneDots(prefix + '-rev', qRev, delayRev, 'rev');
+  const label = document.getElementById(prefix + '-vis-delay');
+  if (label) {
+    const avg = (delayFwd + delayRev) / 2;
+    label.textContent = avg < 0.1 ? 'disabled' : formatDelay(avg) + ' one-way';
+  }
+}
+
+// ── Copy command ────────────────────────────────────
+function copyCmd(btn) {
+  const code = btn.previousElementSibling.textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
+// ── Data fetching ───────────────────────────────────
 async function fetchStatus() {
   try {
     const res = await fetch('/api/status');
-    const data = await res.json();
+    const d = await res.json();
 
     // Mars
-    document.getElementById('delay-mars').innerHTML =
-      formatDelay(data.delay_to_mars) + '<span class="card-unit"></span>';
-    document.getElementById('delay-earth').innerHTML =
-      formatDelay(data.delay_to_earth) + '<span class="card-unit"></span>';
-    document.getElementById('delay-mars-human').textContent = formatHuman(data.delay_to_mars, 'mars');
-    document.getElementById('delay-earth-human').textContent = formatHuman(data.delay_to_earth, 'mars');
-    document.getElementById('queue-mars').innerHTML =
-      data.queue_to_mars + '<span class="card-unit"> pkts</span>';
-    document.getElementById('queue-earth').innerHTML =
-      data.queue_to_earth + '<span class="card-unit"> pkts</span>';
+    document.getElementById('delay-mars').innerHTML = formatDelay(d.delay_to_mars);
+    document.getElementById('delay-earth').innerHTML = formatDelay(d.delay_to_earth);
+    document.getElementById('queue-mars').innerHTML = d.queue_to_mars + '<span class="card-unit"> pkts</span>';
+    document.getElementById('queue-earth').innerHTML = d.queue_to_earth + '<span class="card-unit"> pkts</span>';
+    updateLinkVis('mars', d.delay_to_mars, d.delay_to_earth, d.queue_to_mars, d.queue_to_earth);
 
     // Moon
-    if (data.moon_enabled) {
-      if (!moonEnabled) {
-        moonEnabled = true;
-        document.getElementById('moon-section').classList.add('visible');
-        document.querySelectorAll('.moon-input').forEach(el => el.style.display = '');
-      }
-      document.getElementById('delay-moon').innerHTML =
-        formatDelay(data.delay_to_moon) + '<span class="card-unit"></span>';
-      document.getElementById('delay-from-moon').innerHTML =
-        formatDelay(data.delay_from_moon) + '<span class="card-unit"></span>';
-      document.getElementById('delay-moon-human').textContent = formatHuman(data.delay_to_moon, 'moon');
-      document.getElementById('delay-from-moon-human').textContent = formatHuman(data.delay_from_moon, 'moon');
-      document.getElementById('queue-moon').innerHTML =
-        data.queue_to_moon + '<span class="card-unit"> pkts</span>';
-      document.getElementById('queue-from-moon').innerHTML =
-        data.queue_from_moon + '<span class="card-unit"> pkts</span>';
+    if (d.moon_enabled && !moonEnabled) {
+      moonEnabled = true;
+      document.getElementById('moon-section').classList.add('visible');
+      document.getElementById('vis-moon-link').classList.add('visible');
+      document.getElementById('cmd-moon').classList.add('visible');
+      document.querySelectorAll('.moon-input').forEach(el => el.style.display = '');
+    }
+    if (moonEnabled) {
+      document.getElementById('delay-moon').innerHTML = formatDelay(d.delay_to_moon);
+      document.getElementById('delay-from-moon').innerHTML = formatDelay(d.delay_from_moon);
+      document.getElementById('queue-moon').innerHTML = d.queue_to_moon + '<span class="card-unit"> pkts</span>';
+      document.getElementById('queue-from-moon').innerHTML = d.queue_from_moon + '<span class="card-unit"> pkts</span>';
+      updateLinkVis('moon', d.delay_to_moon, d.delay_from_moon, d.queue_to_moon, d.queue_from_moon);
+    }
+
+    // Custom
+    if (d.custom_enabled && !customEnabled) {
+      customEnabled = true;
+      document.getElementById('custom-section').classList.add('visible');
+      document.getElementById('vis-custom-link').classList.add('visible');
+      document.getElementById('cmd-custom').classList.add('visible');
+      document.querySelectorAll('.custom-input').forEach(el => el.style.display = '');
+    }
+    if (customEnabled) {
+      document.getElementById('delay-custom').innerHTML = formatDelay(d.delay_to_custom);
+      document.getElementById('delay-from-custom').innerHTML = formatDelay(d.delay_from_custom);
+      document.getElementById('queue-custom').innerHTML = d.queue_to_custom + '<span class="card-unit"> pkts</span>';
+      document.getElementById('queue-from-custom').innerHTML = d.queue_from_custom + '<span class="card-unit"> pkts</span>';
+      updateLinkVis('custom', d.delay_to_custom, d.delay_from_custom, d.queue_to_custom, d.queue_from_custom);
     }
 
     document.getElementById('status-dot').className = 'status-dot';
     document.getElementById('status-text').textContent =
-      'Connected to Redis | Updated ' + new Date().toLocaleTimeString();
+      'Connected | ' + new Date().toLocaleTimeString();
   } catch (e) {
     document.getElementById('status-dot').className = 'status-dot error';
-    document.getElementById('status-text').textContent = 'Connection error: ' + e.message;
+    document.getElementById('status-text').textContent = 'Error: ' + e.message;
   }
 }
 
+// ── Presets ──────────────────────────────────────────
 async function loadPresets() {
   const res = await fetch('/api/presets');
   const presets = await res.json();
@@ -368,7 +719,6 @@ async function loadPresets() {
 }
 
 async function applyPreset(name) {
-  currentPreset = name;
   document.querySelectorAll('.preset-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.name === name);
   });
@@ -381,19 +731,23 @@ async function applyPreset(name) {
 }
 
 async function applyCustom() {
-  const toMars = parseFloat(document.getElementById('custom-mars').value) || 0;
-  const toEarth = parseFloat(document.getElementById('custom-earth').value) || 0;
-  currentPreset = null;
   document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-
-  const body = {to_mars: toMars, to_earth: toEarth};
+  const body = {
+    to_mars: parseFloat(document.getElementById('custom-mars').value) || 0,
+    to_earth: parseFloat(document.getElementById('custom-earth').value) || 0
+  };
   if (moonEnabled) {
-    const toMoon = parseFloat(document.getElementById('custom-moon').value);
-    const fromMoon = parseFloat(document.getElementById('custom-from-moon').value);
-    if (!isNaN(toMoon)) body.to_moon = toMoon;
-    if (!isNaN(fromMoon)) body.from_moon = fromMoon;
+    const v1 = parseFloat(document.getElementById('input-moon').value);
+    const v2 = parseFloat(document.getElementById('input-from-moon').value);
+    if (!isNaN(v1)) body.to_moon = v1;
+    if (!isNaN(v2)) body.from_moon = v2;
   }
-
+  if (customEnabled) {
+    const v1 = parseFloat(document.getElementById('input-custom').value);
+    const v2 = parseFloat(document.getElementById('input-from-custom').value);
+    if (!isNaN(v1)) body.to_custom = v1;
+    if (!isNaN(v2)) body.from_custom = v2;
+  }
   await fetch('/api/delay', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -402,6 +756,8 @@ async function applyCustom() {
   fetchStatus();
 }
 
+// ── Init ────────────────────────────────────────────
+initDots();
 loadPresets();
 fetchStatus();
 setInterval(fetchStatus, 1000);
