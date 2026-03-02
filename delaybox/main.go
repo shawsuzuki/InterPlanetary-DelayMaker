@@ -317,6 +317,15 @@ func classifyFrameType(frame []byte) string {
 	}
 	switch et {
 	case 0x0806:
+		// ARP: check for Gratuitous ARP (sender IP == target IP)
+		// ARP header: sender IP at +14, target IP at +24
+		if len(frame) >= hdrOff+28 {
+			s, t := hdrOff+14, hdrOff+24
+			if frame[s] == frame[t] && frame[s+1] == frame[t+1] &&
+				frame[s+2] == frame[t+2] && frame[s+3] == frame[t+3] {
+				return "garp"
+			}
+		}
 		return "arp"
 	case 0x86DD:
 		// IPv6 Next Header at offset 6 within IPv6 header
@@ -327,7 +336,7 @@ func classifyFrameType(frame []byte) string {
 			case 17:
 				return "udp"
 			case 58:
-				return "icmp" // ICMPv6
+				return "icmpv6"
 			}
 		}
 		return "other"
