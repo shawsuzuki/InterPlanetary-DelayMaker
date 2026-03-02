@@ -147,8 +147,7 @@ This project was developed for WIDE Project Space-WG to demonstrate interplaneta
 The owner (Shota) is a PhD student researching DTN routing (IR-CGR). This tool supports his research by providing a realistic delay environment for protocol testing.
 
 When making changes:
-1. Keep main.go under 400 lines
-2. Maintain clear section separation with comments
-3. All packets (including ARP) must experience delay - no bypass modes
-4. Dynamic configuration via Redis is essential
-5. Log format: `[source->dest] action details`
+1. Maintain clear section separation with comments
+2. All packets (including ARP) must experience delay - no bypass modes
+3. Dynamic configuration via Redis is essential
+4. Log format: `[source->dest] action details`

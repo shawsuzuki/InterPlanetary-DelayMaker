@@ -29,6 +29,19 @@ services:
     volumes:
       - redis_data:/data
 
+  dashboard:
+    build: ./dashboard
+    container_name: dashboard
+    ports:
+      - "8080:8080"
+    environment:
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
   earth:
     image: alpine:latest
     container_name: earth

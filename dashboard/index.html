@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InterPlanetary Delay Maker</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Segoe UI', Roboto, monospace;
+    background: #0a0e17;
+    color: #e0e6f0;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 1.4em;
+    color: #7eb8da;
+    margin-bottom: 8px;
+    letter-spacing: 2px;
+  }
+  .subtitle {
+    text-align: center;
+    color: #5a6a7a;
+    font-size: 0.85em;
+    margin-bottom: 24px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    max-width: 720px;
+    margin: 0 auto 24px;
+  }
+  .card {
+    background: #141b2a;
+    border: 1px solid #1e2a3a;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+  }
+  .card-label {
+    font-size: 0.75em;
+    color: #5a7a9a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+  .card-value {
+    font-size: 2.2em;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .card-unit {
+    font-size: 0.5em;
+    color: #5a7a9a;
+    margin-left: 4px;
+  }
+  .card-sub {
+    font-size: 0.8em;
+    color: #4a5a6a;
+    margin-top: 4px;
+  }
+  .earth { color: #4a9eff; }
+  .mars { color: #ff6a4a; }
+  .queue { color: #8a8aff; }
+
+  .presets {
+    max-width: 720px;
+    margin: 0 auto 24px;
+  }
+  .presets h2 {
+    font-size: 0.85em;
+    color: #5a7a9a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+  }
+  .preset-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .preset-btn {
+    background: #141b2a;
+    border: 1px solid #1e2a3a;
+    border-radius: 10px;
+    padding: 14px 8px;
+    color: #c0c8d8;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .preset-btn:hover {
+    background: #1a2540;
+    border-color: #3a5a8a;
+  }
+  .preset-btn.active {
+    border-color: #4a9eff;
+    background: #0f1a30;
+  }
+  .preset-name {
+    font-size: 1em;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .preset-delay {
+    font-size: 0.8em;
+    color: #5a7a9a;
+  }
+
+  .custom {
+    max-width: 720px;
+    margin: 0 auto 24px;
+    background: #141b2a;
+    border: 1px solid #1e2a3a;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .custom h2 {
+    font-size: 0.85em;
+    color: #5a7a9a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+  }
+  .custom-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .custom-row label {
+    font-size: 0.85em;
+    color: #7a8a9a;
+    min-width: 100px;
+  }
+  .custom-row input {
+    flex: 1;
+    background: #0a0e17;
+    border: 1px solid #1e2a3a;
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #e0e6f0;
+    font-size: 1em;
+    font-family: inherit;
+  }
+  .custom-row input:focus {
+    outline: none;
+    border-color: #4a9eff;
+  }
+  .apply-btn {
+    background: #1a3a6a;
+    border: 1px solid #2a5a9a;
+    border-radius: 8px;
+    padding: 8px 20px;
+    color: #c0d8ff;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.15s;
+    margin-top: 12px;
+  }
+  .apply-btn:hover { background: #2a4a7a; }
+
+  .status-bar {
+    max-width: 720px;
+    margin: 0 auto;
+    text-align: center;
+    font-size: 0.75em;
+    color: #3a4a5a;
+  }
+  .status-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #2a6a2a;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  .status-dot.error { background: #8a2a2a; }
+</style>
+</head>
+<body>
+
+<h1>INTERPLANETARY DELAY MAKER</h1>
+<p class="subtitle">L2 Network Delay Emulator &mdash; WIDE Project Space-WG</p>
+
+<div class="grid">
+  <div class="card">
+    <div class="card-label">Earth &rarr; Mars Delay</div>
+    <div class="card-value earth" id="delay-mars">--<span class="card-unit">s</span></div>
+    <div class="card-sub" id="delay-mars-human"></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Mars &rarr; Earth Delay</div>
+    <div class="card-value mars" id="delay-earth">--<span class="card-unit">s</span></div>
+    <div class="card-sub" id="delay-earth-human"></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Queue: Earth &rarr; Mars</div>
+    <div class="card-value queue" id="queue-mars">--<span class="card-unit">pkts</span></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Queue: Mars &rarr; Earth</div>
+    <div class="card-value queue" id="queue-earth">--<span class="card-unit">pkts</span></div>
+  </div>
+</div>
+
+<div class="presets">
+  <h2>Presets</h2>
+  <div class="preset-grid" id="preset-grid"></div>
+</div>
+
+<div class="custom">
+  <h2>Custom Delay</h2>
+  <div class="custom-row">
+    <label>Earth &rarr; Mars</label>
+    <input type="number" id="custom-mars" min="0" step="0.1" placeholder="seconds">
+  </div>
+  <div class="custom-row" style="margin-top:8px">
+    <label>Mars &rarr; Earth</label>
+    <input type="number" id="custom-earth" min="0" step="0.1" placeholder="seconds">
+  </div>
+  <button class="apply-btn" onclick="applyCustom()">Apply</button>
+</div>
+
+<div class="status-bar">
+  <span class="status-dot" id="status-dot"></span>
+  <span id="status-text">Connecting...</span>
+</div>
+
+<script>
+function formatDelay(secs) {
+  if (secs < 60) return secs.toFixed(1) + 's';
+  const m = Math.floor(secs / 60);
+  const s = (secs % 60).toFixed(0);
+  return m + 'm ' + s + 's';
+}
+
+function formatHuman(secs) {
+  if (secs < 2) return 'Light reaches the Moon in ~1.3s';
+  if (secs < 60) return 'RTT: ' + formatDelay(secs * 2);
+  const m = Math.floor(secs / 60);
+  if (m < 5) return 'Mars at closest approach (~3 min)';
+  return 'Mars at far distance (~' + m + ' min one-way)';
+}
+
+let currentPreset = null;
+
+async function fetchStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    document.getElementById('delay-mars').innerHTML =
+      formatDelay(data.delay_to_mars) + '<span class="card-unit"></span>';
+    document.getElementById('delay-earth').innerHTML =
+      formatDelay(data.delay_to_earth) + '<span class="card-unit"></span>';
+    document.getElementById('delay-mars-human').textContent = formatHuman(data.delay_to_mars);
+    document.getElementById('delay-earth-human').textContent = formatHuman(data.delay_to_earth);
+    document.getElementById('queue-mars').innerHTML =
+      data.queue_to_mars + '<span class="card-unit"> pkts</span>';
+    document.getElementById('queue-earth').innerHTML =
+      data.queue_to_earth + '<span class="card-unit"> pkts</span>';
+    document.getElementById('status-dot').className = 'status-dot';
+    document.getElementById('status-text').textContent =
+      'Connected to Redis | Updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('status-dot').className = 'status-dot error';
+    document.getElementById('status-text').textContent = 'Connection error: ' + e.message;
+  }
+}
+
+async function loadPresets() {
+  const res = await fetch('/api/presets');
+  const presets = await res.json();
+  const grid = document.getElementById('preset-grid');
+  grid.innerHTML = '';
+  presets.forEach(p => {
+    const btn = document.createElement('div');
+    btn.className = 'preset-btn';
+    btn.dataset.name = p.name;
+    btn.innerHTML = '<div class="preset-name">' + p.label + '</div>'
+      + '<div class="preset-delay">' + p.display + ' one-way</div>';
+    btn.onclick = () => applyPreset(p.name);
+    grid.appendChild(btn);
+  });
+}
+
+async function applyPreset(name) {
+  currentPreset = name;
+  document.querySelectorAll('.preset-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.name === name);
+  });
+  await fetch('/api/preset', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: name})
+  });
+  fetchStatus();
+}
+
+async function applyCustom() {
+  const toMars = parseFloat(document.getElementById('custom-mars').value) || 0;
+  const toEarth = parseFloat(document.getElementById('custom-earth').value) || 0;
+  currentPreset = null;
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  await fetch('/api/delay', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({to_mars: toMars, to_earth: toEarth})
+  });
+  fetchStatus();
+}
+
+loadPresets();
+fetchStatus();
+setInterval(fetchStatus, 1000);
+</script>
+</body>
+</html>
