@@ -81,7 +81,7 @@
   }
   .pkt.t-icmp { background: #4a9eff; box-shadow: 0 0 4px #4a9eff80; }
   .pkt.t-arp { background: #ffcc00; box-shadow: 0 0 4px #ffcc0080; }
-  .pkt.t-ipv6 { background: #666; box-shadow: 0 0 4px #66666680; }
+  .pkt.t-ip { background: #888; box-shadow: 0 0 3px #88888880; }
   .pkt.t-tcp { background: #ff6a4a; box-shadow: 0 0 4px #ff6a4a80; }
   .pkt.t-udp { background: #4adf8a; box-shadow: 0 0 4px #4adf8a80; }
   .pkt.t-other { background: #888; box-shadow: 0 0 3px #88888880; }
@@ -219,7 +219,7 @@
       <span><i style="background:#4a9eff"></i>ICMP</span>
       <span><i style="background:#ff6a4a"></i>TCP</span>
       <span><i style="background:#4adf8a"></i>UDP</span>
-      <span><i style="background:#666"></i>IPv6</span>
+      <span><i style="background:#888"></i>Other</span>
     </div>
   </div>
 
@@ -318,14 +318,20 @@
         </select>
       </div>
       <div class="input-group"><label>Mode</label>
-        <select id="ramp-mode">
-          <option value="amount">Amount (s/sec)</option>
-          <option value="rate">Rate (%/sec)</option>
+        <select id="ramp-mode" onchange="updateDeltaUnit()">
+          <option value="amount">Amount</option>
+          <option value="rate">Rate</option>
         </select>
       </div>
       <div class="input-group"><label>From (s)</label><input type="number" id="ramp-from" min="0" step="1" placeholder="start delay"></div>
       <div class="input-group"><label>To (s)</label><input type="number" id="ramp-to" min="0" step="1" placeholder="end delay"></div>
-      <div class="input-group"><label>Delta per second</label><input type="number" id="ramp-step" step="0.1" placeholder="e.g. -50 or -10%"></div>
+      <div class="input-group"><label>Delta per second</label>
+        <div style="display:flex;gap:4px;align-items:center;">
+          <button type="button" class="btn btn-small" id="delta-dir-btn" onclick="toggleDeltaDir()" style="min-width:28px;font-size:1em;padding:6px 8px;font-weight:700;">+</button>
+          <input type="number" id="ramp-step" min="0" step="0.1" placeholder="value" style="flex:1;">
+          <span id="delta-unit" style="color:#5a7a9a;font-size:0.85em;white-space:nowrap;">s/sec</span>
+        </div>
+      </div>
       <div class="input-group"><label>Interval (s)</label><input type="number" id="ramp-interval" value="1" min="0.1" step="0.1"></div>
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;">
@@ -510,20 +516,35 @@ async function applyCustomDelay() {
 }
 
 // ── Ramp ───────────────────────────────────────────
+let deltaPositive = true;
+function toggleDeltaDir() {
+  deltaPositive = !deltaPositive;
+  const btn = document.getElementById('delta-dir-btn');
+  btn.textContent = deltaPositive ? '+' : '−';
+  btn.style.color = deltaPositive ? '#4adf8a' : '#ff6a4a';
+}
+function updateDeltaUnit() {
+  const mode = document.getElementById('ramp-mode').value;
+  document.getElementById('delta-unit').textContent = mode === 'rate' ? '%/sec' : 's/sec';
+}
+
 async function startRamp() {
   const mode = document.getElementById('ramp-mode').value;
+  const stepVal = parseFloat(document.getElementById('ramp-step').value)||0;
+  const step = deltaPositive ? stepVal : -stepVal;
   const body = {
     link: document.getElementById('ramp-link').value,
     mode: mode,
     from: parseFloat(document.getElementById('ramp-from').value)||0,
     to: parseFloat(document.getElementById('ramp-to').value)||0,
-    step: parseFloat(document.getElementById('ramp-step').value)||0,
+    step: step,
     interval: parseFloat(document.getElementById('ramp-interval').value)||1,
   };
   const res = await fetch('/api/ramp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if (!res.ok) { const t = await res.text(); addLog('Dynamic delay error: '+t, 'ls', 'settings'); return; }
   const unit = mode==='rate' ? '%' : 's';
-  addLog('Dynamic delay started: '+body.link+' '+body.from+'→'+body.to+' ('+body.step+unit+'/sec)', 'ls', 'settings');
+  const sign = deltaPositive ? '+' : '−';
+  addLog('Dynamic delay started: '+body.link+' '+body.from+'→'+body.to+' ('+sign+stepVal+unit+'/sec)', 'ls', 'settings');
   fetchRamps();
 }
 async function stopRamp(link) {
@@ -593,7 +614,7 @@ function renderPktLog() {
     to_moon:'→Moon', from_moon:'→Earth(Mn)',
     to_custom:'→Custom', from_custom:'→Earth(C)'
   };
-  const typeColors = {arp:'#ffcc00',icmp:'#4a9eff',tcp:'#ff6a4a',udp:'#4adf8a',ipv6:'#666',ip:'#888',other:'#888'};
+  const typeColors = {arp:'#ffcc00',icmp:'#4a9eff',tcp:'#ff6a4a',udp:'#4adf8a',other:'#888'};
   dirs.forEach(dir => {
     const logs = pktLogData[dir] || [];
     logs.forEach(e => {
@@ -621,9 +642,8 @@ const TARGETS = {
     {label:'Ping Mars',cmd:'docker exec earth ping 10.0.0.3'},
     {label:'Ping Moon',cmd:'docker exec earth ping 10.1.0.3',need:'moon'},
     {label:'Ping Custom',cmd:'docker exec earth ping 10.2.0.3',need:'custom'},
-    {label:'Send file',cmd:'docker cp samples/mars_sol0.jpeg earth:/tmp/'},
-    {label:'NC listen',cmd:'docker exec mars sh -c "nc -l -p 9000 > /tmp/r.jpg" &'},
-    {label:'NC send',cmd:'docker exec earth sh -c "nc 10.0.0.3 9000 < /tmp/mars_sol0.jpeg"'},
+    {label:'NC listen',cmd:'docker exec mars sh -c "nc -l -p 9000 > /tmp/received.jpg"'},
+    {label:'NC send',cmd:'docker exec earth sh -c "nc 10.0.0.3 9000 < /samples/mars_sol0.jpeg"'},
     {label:'View logs',cmd:'docker compose logs -f delaybox'},
   ],
   mars:[{label:'Ping Earth',cmd:'docker exec mars ping 10.0.0.2'},{label:'View logs',cmd:'docker compose logs -f delaybox'}],

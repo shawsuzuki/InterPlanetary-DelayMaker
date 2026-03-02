@@ -59,6 +59,7 @@ services:
       "
     volumes:
       - earth_ready:/tmp
+      - ./samples:/samples:ro
 
   mars:
     image: alpine:latest
