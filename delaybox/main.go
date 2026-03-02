@@ -43,12 +43,12 @@ func main() {
 	customSrcIface := flag.String("custom-src-iface", "", "Earth-side interface (Custom link, optional)")
 	customIface := flag.String("custom-iface", "", "Custom-side interface (optional)")
 	redisAddr := flag.String("redis", "localhost:6379", "Redis address")
-	delayToMarsSec := flag.Int("delay-to-mars", 10, "Initial Earth→Mars delay (seconds)")
-	delayToEarthSec := flag.Int("delay-to-earth", 10, "Initial Mars→Earth delay (seconds)")
-	delayToMoonSec := flag.Int("delay-to-moon", 1, "Initial Earth→Moon delay (seconds)")
-	delayFromMoonSec := flag.Int("delay-from-moon", 1, "Initial Moon→Earth delay (seconds)")
-	delayToCustomSec := flag.Int("delay-to-custom", 5, "Initial Earth→Custom delay (seconds)")
-	delayFromCustomSec := flag.Int("delay-from-custom", 5, "Initial Custom→Earth delay (seconds)")
+	delayToMarsSec := flag.Float64("delay-to-mars", 10, "Initial Earth→Mars delay (seconds)")
+	delayToEarthSec := flag.Float64("delay-to-earth", 10, "Initial Mars→Earth delay (seconds)")
+	delayToMoonSec := flag.Float64("delay-to-moon", 1.28, "Initial Earth→Moon delay (seconds)")
+	delayFromMoonSec := flag.Float64("delay-from-moon", 1.28, "Initial Moon→Earth delay (seconds)")
+	delayToCustomSec := flag.Float64("delay-to-custom", 5, "Initial Earth→Custom delay (seconds)")
+	delayFromCustomSec := flag.Float64("delay-from-custom", 5, "Initial Custom→Earth delay (seconds)")
 	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -77,7 +77,7 @@ func main() {
 
 	allLinks := []*link{toMars, toEarth}
 
-	log.Printf("  Earth↔Mars: %s / %s (delay: %ds / %ds)",
+	log.Printf("  Earth↔Mars: %s / %s (delay: %gs / %gs)",
 		*earthIface, *marsIface, *delayToMarsSec, *delayToEarthSec)
 
 	// ── Earth ↔ Moon link (optional) ─────────────────────────────────────
@@ -99,7 +99,7 @@ func main() {
 
 		allLinks = append(allLinks, toMoon, fromMoon)
 
-		log.Printf("  Earth↔Moon: %s / %s (delay: %ds / %ds)",
+		log.Printf("  Earth↔Moon: %s / %s (delay: %gs / %gs)",
 			*moonSrcIface, *moonIface, *delayToMoonSec, *delayFromMoonSec)
 	}
 
@@ -122,7 +122,7 @@ func main() {
 
 		allLinks = append(allLinks, toCustom, fromCustom)
 
-		log.Printf("  Earth↔Custom: %s / %s (delay: %ds / %ds)",
+		log.Printf("  Earth↔Custom: %s / %s (delay: %gs / %gs)",
 			*customSrcIface, *customIface, *delayToCustomSec, *delayFromCustomSec)
 	}
 
@@ -141,13 +141,13 @@ func main() {
 
 // ── Link Helpers ─────────────────────────────────────────────────────────────
 
-func newLink(name, queueKey, configKey string, delaySec int) *link {
+func newLink(name, queueKey, configKey string, delaySec float64) *link {
 	l := &link{
 		name:      name,
 		queueKey:  queueKey,
 		configKey: configKey,
 	}
-	l.delay.Store(int64(time.Duration(delaySec) * time.Second))
+	l.delay.Store(int64(float64(time.Second) * delaySec))
 	return l
 }
 

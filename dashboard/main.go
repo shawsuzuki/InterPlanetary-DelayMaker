@@ -264,6 +264,27 @@ func main() {
 		}
 	})
 
+	// ── POST /api/flush — Clear all packet queues ──────────────────────
+	http.HandleFunc("/api/flush", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		queues := []string{
+			queueToMars, queueToEarth,
+			queueToMoon, queueFromMoon,
+			queueToCustom, queueFromCustom,
+		}
+		deleted := int64(0)
+		for _, q := range queues {
+			n := rdb.Del(ctx, q).Val()
+			deleted += n
+		}
+		log.Printf("[dashboard] Flushed all queues (%d keys deleted)", deleted)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "deleted": deleted})
+	})
+
 	log.Println("Dashboard running on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

@@ -299,6 +299,12 @@
     <button class="btn btn-primary mt-12" onclick="startRamp()">Start</button>
     <div class="ramp-badges" id="ramp-badges"></div>
   </div>
+  <div class="setting-block">
+    <h3>Maintenance</h3>
+    <p style="font-size:0.8em;color:#5a6a7a;margin-bottom:10px;">Clear all packet queues in Redis. Delay config values are preserved.</p>
+    <button class="btn btn-danger" onclick="flushQueues()">Flush All Queues</button>
+    <span id="flush-result" style="font-size:0.8em;color:#4adf8a;margin-left:10px;"></span>
+  </div>
 </div>
 </div>
 
@@ -500,6 +506,15 @@ async function fetchRamps() {
       '<button class="btn btn-danger btn-small" onclick="stopRamp(\''+r.link+'\')">Stop</button></div>'
     ).join('');
   } catch(e){}
+}
+
+// ── Flush Queues ────────────────────────────────────
+async function flushQueues() {
+  await fetch('/api/flush',{method:'POST'});
+  document.getElementById('flush-result').textContent='Flushed!';
+  setTimeout(()=>document.getElementById('flush-result').textContent='',2000);
+  addLog('All queues flushed', 'ls', 'settings');
+  fetchStatus();
 }
 
 // ── Commands ───────────────────────────────────────
