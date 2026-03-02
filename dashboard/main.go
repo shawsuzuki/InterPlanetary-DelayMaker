@@ -357,13 +357,16 @@ func packetPositions(ctx context.Context, rdb *redis.Client, queueKey string, de
 		}
 		progress = math.Round(progress*1000) / 1000
 		pktType := classifyMember(z.Member)
+		if pktType == "ndp" {
+			continue // NDP management packets: delayed but not displayed
+		}
 		dots = append(dots, PacketDot{Progress: progress, Type: pktType})
 	}
 	return dots
 }
 
 // classifyMember parses the hex-encoded Ethernet frame from a Redis member
-// and returns the packet type: "arp","otherarp","icmp","icmpv6","tcp","udp","other"
+// and returns the packet type: "arp","otherarp","icmp","icmpv6","ndp","tcp","udp","other"
 func classifyMember(member interface{}) string {
 	s, ok := member.(string)
 	if !ok {
@@ -401,6 +404,12 @@ func classifyMember(member interface{}) string {
 			case 17:
 				return "udp"
 			case 58:
+				if len(frame) > hdrOff+40 {
+					switch frame[hdrOff+40] {
+					case 133, 134, 135, 136, 137:
+						return "ndp"
+					}
+				}
 				return "icmpv6"
 			}
 		}

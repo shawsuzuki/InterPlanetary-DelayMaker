@@ -51,9 +51,12 @@ docker compose logs -f delaybox
 `http://localhost:8080` でWebダッシュボードにアクセス。
 
 機能:
-- Mars / Moon 各リンクの遅延とキュー状態をリアルタイム表示（1秒更新）
+- Mars / Moon / Custom 各リンクの遅延とキュー状態をリアルタイム表示（1秒更新）
+- パケット可視化: レーン上にパケットの進行状況をタイプ別にカラー表示
+- パケットキャプチャログ: 方向別フィルタ付きのリアルタイムログ
 - **プリセット:** Demo (5s/1s), Moon Only (1.3s), Mars closest (3m2s), Mars farthest (22m22s)
 - カスタム遅延の入力と即時適用
+- 動的遅延変更（Ramp）: 一定量ずつ増加/減少、またはパーセントで変化
 
 ## 遅延時間の動的変更
 
@@ -94,17 +97,34 @@ environment:
 | Mars | eth0 | 10.0.0.3 | 10.0.0.0/24 |
 | Moon | eth0 | 10.1.0.3 | 10.1.0.0/24 |
 
+## パケット分類
+
+ダッシュボードの可視化・ログでは、パケットをEthernetフレームから分類して表示します。
+
+| 分類 | 条件 | 可視化 | ログ |
+|------|------|--------|------|
+| ARP | EtherType 0x0806, sender IP ≠ target IP | ● 黄 | ✅ |
+| otherARP | EtherType 0x0806, sender IP = target IP (GARP等) | ● 橙 | ✅ |
+| ICMP | IPv4 Protocol 1 | ● 青丸 | ✅ |
+| ICMPv6 | IPv6 NH 58, Type ≠ 133-137 (Echo等) | ▲ 青三角 | ✅ |
+| TCP | IPv4/IPv6 Protocol 6 | ● 赤 | ✅ |
+| UDP | IPv4/IPv6 Protocol 17 | ● 緑 | ✅ |
+| Other | 上記以外 | ● 灰 | ✅ |
+| NDP | IPv6 NH 58, Type 133-137 (RS/RA/NS/NA/Redirect) | — | — |
+
+> **NDP (Neighbor Discovery Protocol) について:**
+> ICMPv6 Type 133-137 のNDPパケット（RS, RA, NS, NA, Redirect）は、IPv6のアドレス解決やルータ探索のためのマネジメントパケットです。
+> これらは **遅延キューを通過してL2遅延は受けますが、ダッシュボードの可視化およびパケットキャプチャログには表示されません**。
+> ユーザ通信（ping6等のICMPv6 Echo）と区別するため、意図的に棄却しています。
+
 ## サンプルファイル
 
-`samples/` ディレクトリにデモ用の火星ローバー画像があります。
+`samples/` ディレクトリがEarthコンテナに `/samples` としてマウントされています。
 
 ```bash
-# サンプル画像をEarthコンテナにコピー
-docker cp samples/mars_sol0.jpeg earth:/tmp/
-
 # Mars へ netcat で転送
 docker exec mars sh -c "nc -l -p 9000 > /tmp/received.jpeg" &
-docker exec earth sh -c "nc 10.0.0.3 9000 < /tmp/mars_sol0.jpeg"
+docker exec earth sh -c "nc 10.0.0.3 9000 < /samples/mars_sol0.jpeg"
 ```
 
 ## キュー状態の確認

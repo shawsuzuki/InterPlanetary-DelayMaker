@@ -240,9 +240,12 @@ func receiveLoop(ctx context.Context, rdb *redis.Client, handle *pcap.Handle, l 
 			log.Printf("[%s] Queued %d bytes%s delay=%v | %s", l.name, len(frame), vlanStr, delay, info)
 
 			// Packet log for dashboard (capped at 200 per direction)
-			logEntry := fmt.Sprintf("%d|%d|%s|%s", time.Now().UnixMilli(), len(frame), pktType, info)
-			rdb.LPush(ctx, "pktlog:"+l.name, logEntry)
-			rdb.LTrim(ctx, "pktlog:"+l.name, 0, 199)
+			// NDP (ICMPv6 management) packets are silently delayed but not logged
+			if pktType != "ndp" {
+				logEntry := fmt.Sprintf("%d|%d|%s|%s", time.Now().UnixMilli(), len(frame), pktType, info)
+				rdb.LPush(ctx, "pktlog:"+l.name, logEntry)
+				rdb.LTrim(ctx, "pktlog:"+l.name, 0, 199)
+			}
 		}
 	}
 }
@@ -336,6 +339,13 @@ func classifyFrameType(frame []byte) string {
 			case 17:
 				return "udp"
 			case 58:
+				// ICMPv6 Type at IPv6 header (40B) + 0
+				if len(frame) > hdrOff+40 {
+					switch frame[hdrOff+40] {
+					case 133, 134, 135, 136, 137: // RS, RA, NS, NA, Redirect
+						return "ndp"
+					}
+				}
 				return "icmpv6"
 			}
 		}
