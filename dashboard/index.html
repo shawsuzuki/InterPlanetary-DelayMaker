@@ -80,9 +80,9 @@
     opacity: 0.9;
   }
   .pkt.t-icmp { background: #4a9eff; box-shadow: 0 0 4px #4a9eff80; }
-  .pkt.t-icmpv6 { background: #4a9eff; box-shadow: 0 0 4px #4a9eff80; border-radius: 1px; }
+  .pkt.t-icmpv6 { background: #4a9eff; box-shadow: none; border-radius: 0; clip-path: polygon(50% 0%, 0% 100%, 100% 100%); width: 8px; height: 8px; top: 1px; }
   .pkt.t-arp { background: #ffcc00; box-shadow: 0 0 4px #ffcc0080; }
-  .pkt.t-garp { background: #ffa500; box-shadow: 0 0 4px #ffa50080; }
+  .pkt.t-otherarp { background: #ffa500; box-shadow: 0 0 4px #ffa50080; }
   .pkt.t-tcp { background: #ff6a4a; box-shadow: 0 0 4px #ff6a4a80; }
   .pkt.t-udp { background: #4adf8a; box-shadow: 0 0 4px #4adf8a80; }
   .pkt.t-other { background: #888; box-shadow: 0 0 3px #88888880; }
@@ -217,9 +217,9 @@
     </div>
     <div class="dot-legend">
       <span><i style="background:#ffcc00"></i>ARP</span>
-      <span><i style="background:#ffa500"></i>GARP</span>
+      <span><i style="background:#ffa500"></i>otherARP</span>
       <span><i style="background:#4a9eff"></i>ICMP</span>
-      <span><i style="background:#4a9eff;border-radius:1px"></i>ICMPv6</span>
+      <span><i style="background:#4a9eff;clip-path:polygon(50% 0%,0% 100%,100% 100%);border-radius:0;width:8px;height:8px"></i>ICMPv6</span>
       <span><i style="background:#ff6a4a"></i>TCP</span>
       <span><i style="background:#4adf8a"></i>UDP</span>
       <span><i style="background:#888"></i>Other</span>
@@ -614,7 +614,7 @@ const dirInfo = {
   to_custom: {src:'Earth', dst:'Custom'}, from_custom:{src:'Custom',dst:'Earth'}
 };
 const nodeColors = {Earth:'#4a9eff', Mars:'#ff6a4a', Moon:'#c8c8aa', Custom:'#4adf8a'};
-const typeColors = {arp:'#ffcc00',garp:'#ffa500',icmp:'#4a9eff',icmpv6:'#4a9eff',tcp:'#ff6a4a',udp:'#4adf8a',other:'#888'};
+const typeColors = {arp:'#ffcc00',otherarp:'#ffa500',icmp:'#4a9eff',icmpv6:'#4a9eff',tcp:'#ff6a4a',udp:'#4adf8a',other:'#888'};
 
 function renderPktLog() {
   const box = document.getElementById('pkt-log-box');

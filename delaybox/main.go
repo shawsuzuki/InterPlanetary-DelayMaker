@@ -323,7 +323,7 @@ func classifyFrameType(frame []byte) string {
 			s, t := hdrOff+14, hdrOff+24
 			if frame[s] == frame[t] && frame[s+1] == frame[t+1] &&
 				frame[s+2] == frame[t+2] && frame[s+3] == frame[t+3] {
-				return "garp"
+				return "otherarp"
 			}
 		}
 		return "arp"

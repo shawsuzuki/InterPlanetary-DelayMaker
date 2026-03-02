@@ -363,7 +363,7 @@ func packetPositions(ctx context.Context, rdb *redis.Client, queueKey string, de
 }
 
 // classifyMember parses the hex-encoded Ethernet frame from a Redis member
-// and returns the packet type: "arp","garp","icmp","icmpv6","tcp","udp","other"
+// and returns the packet type: "arp","otherarp","icmp","icmpv6","tcp","udp","other"
 func classifyMember(member interface{}) string {
 	s, ok := member.(string)
 	if !ok {
@@ -389,7 +389,7 @@ func classifyMember(member interface{}) string {
 			si, ti := hdrOff+14, hdrOff+24
 			if frame[si] == frame[ti] && frame[si+1] == frame[ti+1] &&
 				frame[si+2] == frame[ti+2] && frame[si+3] == frame[ti+3] {
-				return "garp"
+				return "otherarp"
 			}
 		}
 		return "arp"
