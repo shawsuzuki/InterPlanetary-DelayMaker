@@ -62,6 +62,13 @@ type Status struct {
 	QueueFromCustom int64   `json:"queue_from_custom"`
 	MoonEnabled     bool    `json:"moon_enabled"`
 	CustomEnabled   bool    `json:"custom_enabled"`
+	// Packet positions: progress values 0.0 (just sent) to 1.0 (arriving)
+	PktsToMars     []float64 `json:"pkts_to_mars"`
+	PktsToEarth    []float64 `json:"pkts_to_earth"`
+	PktsToMoon     []float64 `json:"pkts_to_moon"`
+	PktsFromMoon   []float64 `json:"pkts_from_moon"`
+	PktsToCustom   []float64 `json:"pkts_to_custom"`
+	PktsFromCustom []float64 `json:"pkts_from_custom"`
 }
 
 type DelayRequest struct {
@@ -167,6 +174,15 @@ func main() {
 		status.QueueToCustom = rdb.ZCard(ctx, queueToCustom).Val()
 		status.QueueFromCustom = rdb.ZCard(ctx, queueFromCustom).Val()
 
+		// Packet positions (progress 0.0 → 1.0) from Redis sorted set scores
+		nowNs := float64(time.Now().UnixNano())
+		status.PktsToMars = packetPositions(ctx, rdb, queueToMars, status.DelayToMars, nowNs)
+		status.PktsToEarth = packetPositions(ctx, rdb, queueToEarth, status.DelayToEarth, nowNs)
+		status.PktsToMoon = packetPositions(ctx, rdb, queueToMoon, status.DelayToMoon, nowNs)
+		status.PktsFromMoon = packetPositions(ctx, rdb, queueFromMoon, status.DelayFromMoon, nowNs)
+		status.PktsToCustom = packetPositions(ctx, rdb, queueToCustom, status.DelayToCustom, nowNs)
+		status.PktsFromCustom = packetPositions(ctx, rdb, queueFromCustom, status.DelayFromCustom, nowNs)
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(status)
 	})
@@ -259,6 +275,35 @@ func main() {
 
 func setDelay(rdb *redis.Client, ctx context.Context, key string, secs float64) {
 	rdb.Set(ctx, key, strconv.FormatFloat(secs, 'f', -1, 64), 0)
+}
+
+// packetPositions returns progress (0.0→1.0) for up to 30 packets in a queue.
+// Each packet's score is the send_time in nanoseconds.
+// progress = 1 - (send_time - now) / delay
+func packetPositions(ctx context.Context, rdb *redis.Client, queueKey string, delaySec float64, nowNs float64) []float64 {
+	if delaySec < 0.001 {
+		return []float64{}
+	}
+	results, err := rdb.ZRangeWithScores(ctx, queueKey, 0, 29).Result()
+	if err != nil || len(results) == 0 {
+		return []float64{}
+	}
+	delayNs := delaySec * 1e9
+	positions := make([]float64, 0, len(results))
+	for _, z := range results {
+		remaining := z.Score - nowNs
+		progress := 1.0 - (remaining / delayNs)
+		if progress < 0 {
+			progress = 0
+		}
+		if progress > 1 {
+			progress = 1
+		}
+		// Round to 3 decimals to reduce JSON size
+		progress = math.Round(progress*1000) / 1000
+		positions = append(positions, progress)
+	}
+	return positions
 }
 
 // ── Ramp Handlers ───────────────────────────────────────────────────────────
