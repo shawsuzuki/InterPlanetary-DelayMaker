@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/google/gopacket/pcap"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -107,9 +108,9 @@ func NewDelayDaemon(config Config) (*DelayDaemon, error) {
 		return nil, fmt.Errorf("failed to open earth socket: %w", err)
 	}
 
-	marsConn, err := openRawSocket(config.MarsIface)
+	// Open pcap handles
+	earthHandle, err := pcap.OpenLive(config.EarthIface, snapLen, true, pcap.BlockForever)
 	if err != nil {
-		earthConn.Close()
 		cancel()
 		return nil, fmt.Errorf("failed to open mars socket: %w", err)
 	}
@@ -126,6 +127,29 @@ func NewDelayDaemon(config Config) (*DelayDaemon, error) {
 	}, nil
 }
 
+		return nil, fmt.Errorf("failed to open earth interface: %w", err)
+	}
+
+	marsHandle, err := pcap.OpenLive(config.MarsIface, snapLen, true, pcap.BlockForever)
+	if err != nil {
+		earthHandle.Close()
+		cancel()
+		return nil, fmt.Errorf("failed to open mars interface: %w", err)
+	}
+
+	d := &DelayDaemon{
+		config:      config,
+		rdb:         rdb,
+		earthHandle: earthHandle,
+		marsHandle:  marsHandle,
+		ctx:         ctx,
+		cancel:      cancel,
+	}
+	d.delayToMars.Store(int64(config.DelayToMars))
+	d.delayToEarth.Store(int64(config.DelayToEarth))
+
+	return d, nil
+}
 
 func (d *DelayDaemon) Run() {
 	log.Printf("L2 Delay Daemon started")
@@ -133,6 +157,10 @@ func (d *DelayDaemon) Run() {
 	log.Printf("  Mars interface:  %s", d.config.MarsIface)
 	log.Printf("  Earth->Mars delay: %v", d.config.DelayToMars)
 	log.Printf("  Mars->Earth delay: %v", d.config.DelayToEarth)
+	log.Printf("  Dynamic config via Redis: SET %s <seconds>, SET %s <seconds>", configKeyMars, configKeyEarth)
+
+	// Start config reload goroutine
+	go d.configReloadLoop()
 
 	// Start config reload goroutine
 	go d.configReloadLoop()
@@ -140,19 +168,53 @@ func (d *DelayDaemon) Run() {
 	// Start receiver goroutines
 	go d.receiveLoop(d.earthConn, "earth", queueToMars, d.getDelayToMars)
 	go d.receiveLoop(d.marsConn, "mars", queueToEarth, d.getDelayToEarth)
+	go d.receiveLoop(d.earthHandle, "earth", queueToMars, &d.delayToMars)
+	go d.receiveLoop(d.marsHandle, "mars", queueToEarth, &d.delayToEarth)
 
 	// Start sender goroutines
-	go d.sendLoop(queueToMars, d.marsConn, "mars")
-	go d.sendLoop(queueToEarth, d.earthConn, "earth")
+	go d.sendLoop(queueToMars, d.marsHandle, "mars")
+	go d.sendLoop(queueToEarth, d.earthHandle, "earth")
 
 	// Wait for context cancellation
 	<-d.ctx.Done()
 }
 
+func (d *DelayDaemon) configReloadLoop() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			// Check for Mars delay update
+			if val, err := d.rdb.Get(d.ctx, configKeyMars).Int64(); err == nil {
+				newDelay := time.Duration(val) * time.Second
+				oldDelay := time.Duration(d.delayToMars.Load())
+				if newDelay != oldDelay {
+					d.delayToMars.Store(int64(newDelay))
+					log.Printf("[CONFIG] Earth->Mars delay changed: %v -> %v", oldDelay, newDelay)
+				}
+			}
+
+			// Check for Earth delay update
+			if val, err := d.rdb.Get(d.ctx, configKeyEarth).Int64(); err == nil {
+				newDelay := time.Duration(val) * time.Second
+				oldDelay := time.Duration(d.delayToEarth.Load())
+				if newDelay != oldDelay {
+					d.delayToEarth.Store(int64(newDelay))
+					log.Printf("[CONFIG] Mars->Earth delay changed: %v -> %v", oldDelay, newDelay)
+				}
+			}
+		}
+	}
+}
+
 func (d *DelayDaemon) Stop() {
 	d.cancel()
-	d.earthConn.Close()
-	d.marsConn.Close()
+	d.earthHandle.Close()
+	d.marsHandle.Close()
 	d.rdb.Close()
 }
 
@@ -206,33 +268,31 @@ func (d *DelayDaemon) reloadDelayConfig(redisKey string, current *time.Duration,
 
 func (d *DelayDaemon) receiveLoop(conn net.PacketConn, sourceName, queueName string, getDelay func() time.Duration) {
 	buf := make([]byte, 65535)
+func (d *DelayDaemon) receiveLoop(handle *pcap.Handle, sourceName, queueName string, delayPtr *atomic.Int64) {
+	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+	packetSource.NoCopy = true
 
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
-		default:
-		}
+		case packet, ok := <-packetSource.Packets():
+			if !ok {
+				return
+			}
 
-		// Set read deadline to allow checking context
-		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-
-		n, _, err := conn.ReadFrom(buf)
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			// Get raw frame data
+			frame := packet.Data()
+			if len(frame) == 0 {
 				continue
 			}
-			log.Printf("[%s] Read error: %v", sourceName, err)
-			continue
-		}
 
-		if n == 0 {
-			continue
-		}
+			// Get current delay from atomic
+			delay := time.Duration(delayPtr.Load())
 
-		// Copy frame data
-		frame := make([]byte, n)
-		copy(frame, buf[:n])
+			// Parse for logging
+			vlanID := parseVLAN(frame)
+			frameInfo := describeFrame(frame)
 
 		// Parse for logging
 		vlanID := parseVLAN(frame)
@@ -242,29 +302,35 @@ func (d *DelayDaemon) receiveLoop(conn net.PacketConn, sourceName, queueName str
 		delay := getDelay()
 		sendTime := time.Now().Add(delay)
 		sendTimeStr := strconv.FormatInt(sendTime.UnixNano(), 10)
+			// Calculate send time
+			sendTime := time.Now().Add(delay)
+			sendTimeNano := sendTime.UnixNano()
 
-		// Store in Redis sorted set (score = send time in nanoseconds)
-		member := hex.EncodeToString(frame)
-		err = d.rdb.ZAdd(d.ctx, queueName, redis.Z{
-			Score:  float64(sendTime.UnixNano()),
-			Member: member,
-		}).Err()
+			// Store in Redis sorted set (score = send time in nanoseconds)
+			// Prepend timestamp to make each packet unique (even if same content)
+			uniqueID := fmt.Sprintf("%d:", time.Now().UnixNano())
+			member := uniqueID + hex.EncodeToString(frame)
+			err := d.rdb.ZAdd(d.ctx, queueName, redis.Z{
+				Score:  float64(sendTimeNano),
+				Member: member,
+			}).Err()
 
-		if err != nil {
-			log.Printf("[%s] Redis error: %v", sourceName, err)
-			continue
+			if err != nil {
+				log.Printf("[%s] Redis error: %v", sourceName, err)
+				continue
+			}
+
+			vlanStr := ""
+			if vlanID > 0 {
+				vlanStr = fmt.Sprintf(" VLAN=%d", vlanID)
+			}
+			log.Printf("[%s->queue] Queued %d bytes%s, delay=%v | %s",
+				sourceName, len(frame), vlanStr, delay, frameInfo)
 		}
-
-		vlanStr := ""
-		if vlanID > 0 {
-			vlanStr = fmt.Sprintf(" VLAN=%d", vlanID)
-		}
-		log.Printf("[%s->%s] Queued %d bytes%s, send at %s | %s",
-			sourceName, queueName, n, vlanStr, sendTimeStr[:10], frameInfo)
 	}
 }
 
-func (d *DelayDaemon) sendLoop(queueName string, conn net.PacketConn, destName string) {
+func (d *DelayDaemon) sendLoop(queueName string, handle *pcap.Handle, destName string) {
 	for {
 		select {
 		case <-d.ctx.Done():
@@ -287,26 +353,37 @@ func (d *DelayDaemon) sendLoop(queueName string, conn net.PacketConn, destName s
 		}
 
 		for _, member := range results {
-			frame, err := hex.DecodeString(member)
+			// Remove the unique ID prefix (format: "timestamp:hexdata")
+			parts := strings.SplitN(member, ":", 2)
+			if len(parts) != 2 {
+				log.Printf("[->%s] Invalid member format: %s", destName, member)
+				d.rdb.ZRem(d.ctx, queueName, member)
+				continue
+			}
+			hexData := parts[1]
+			
+			frame, err := hex.DecodeString(hexData)
 			if err != nil {
 				log.Printf("[->%s] Decode error: %v", destName, err)
+				d.rdb.ZRem(d.ctx, queueName, member)
 				continue
 			}
 
 			// Send the frame
-			_, err = conn.WriteTo(frame, &rawAddr{})
+			err = handle.WritePacketData(frame)
 			if err != nil {
 				log.Printf("[->%s] Send error: %v", destName, err)
-				continue
+			} else {
+				log.Printf("[->%s] Sent %d bytes", destName, len(frame))
 			}
 
 			// Remove from queue
 			d.rdb.ZRem(d.ctx, queueName, member)
-
-			log.Printf("[->%s] Sent %d bytes", destName, len(frame))
 		}
 
-		time.Sleep(10 * time.Millisecond)
+		if len(results) == 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 }
 
@@ -358,4 +435,17 @@ func describeFrame(frame []byte) string {
 		return "unknown"
 	}
 	return strings.Join(parts, " | ")
+}
+	return joinParts(parts)
+}
+
+func joinParts(parts []string) string {
+	result := ""
+	for i, p := range parts {
+		if i > 0 {
+			result += " | "
+		}
+		result += p
+	}
+	return result
 }
