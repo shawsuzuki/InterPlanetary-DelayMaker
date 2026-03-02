@@ -27,12 +27,22 @@
     margin-bottom: 24px;
   }
 
+  .section-label {
+    font-size: 0.8em;
+    color: #5a7a9a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
   .grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
     max-width: 720px;
-    margin: 0 auto 24px;
+    margin: 0 auto 20px;
   }
   .card {
     background: #141b2a;
@@ -65,7 +75,11 @@
   }
   .earth { color: #4a9eff; }
   .mars { color: #ff6a4a; }
+  .moon { color: #c8c8aa; }
   .queue { color: #8a8aff; }
+
+  .moon-section { display: none; }
+  .moon-section.visible { display: block; }
 
   .presets {
     max-width: 720px;
@@ -126,18 +140,19 @@
     letter-spacing: 1px;
     margin-bottom: 12px;
   }
-  .custom-row {
-    display: flex;
+  .custom-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 12px;
-    align-items: center;
   }
-  .custom-row label {
-    font-size: 0.85em;
+  .custom-group label {
+    display: block;
+    font-size: 0.8em;
     color: #7a8a9a;
-    min-width: 100px;
+    margin-bottom: 4px;
   }
-  .custom-row input {
-    flex: 1;
+  .custom-group input {
+    width: 100%;
     background: #0a0e17;
     border: 1px solid #1e2a3a;
     border-radius: 6px;
@@ -146,7 +161,7 @@
     font-size: 1em;
     font-family: inherit;
   }
-  .custom-row input:focus {
+  .custom-group input:focus {
     outline: none;
     border-color: #4a9eff;
   }
@@ -186,6 +201,8 @@
 <h1>INTERPLANETARY DELAY MAKER</h1>
 <p class="subtitle">L2 Network Delay Emulator &mdash; WIDE Project Space-WG</p>
 
+<!-- Mars Section -->
+<div class="section-label">Mars Link</div>
 <div class="grid">
   <div class="card">
     <div class="card-label">Earth &rarr; Mars Delay</div>
@@ -207,6 +224,31 @@
   </div>
 </div>
 
+<!-- Moon Section (shown when Moon is enabled) -->
+<div class="moon-section" id="moon-section">
+  <div class="section-label">Moon Link</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-label">Earth &rarr; Moon Delay</div>
+      <div class="card-value moon" id="delay-moon">--<span class="card-unit">s</span></div>
+      <div class="card-sub" id="delay-moon-human"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Moon &rarr; Earth Delay</div>
+      <div class="card-value moon" id="delay-from-moon">--<span class="card-unit">s</span></div>
+      <div class="card-sub" id="delay-from-moon-human"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Queue: Earth &rarr; Moon</div>
+      <div class="card-value queue" id="queue-moon">--<span class="card-unit">pkts</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Queue: Moon &rarr; Earth</div>
+      <div class="card-value queue" id="queue-from-moon">--<span class="card-unit">pkts</span></div>
+    </div>
+  </div>
+</div>
+
 <div class="presets">
   <h2>Presets</h2>
   <div class="preset-grid" id="preset-grid"></div>
@@ -214,13 +256,23 @@
 
 <div class="custom">
   <h2>Custom Delay</h2>
-  <div class="custom-row">
-    <label>Earth &rarr; Mars</label>
-    <input type="number" id="custom-mars" min="0" step="0.1" placeholder="seconds">
-  </div>
-  <div class="custom-row" style="margin-top:8px">
-    <label>Mars &rarr; Earth</label>
-    <input type="number" id="custom-earth" min="0" step="0.1" placeholder="seconds">
+  <div class="custom-grid">
+    <div class="custom-group">
+      <label>Earth &rarr; Mars (s)</label>
+      <input type="number" id="custom-mars" min="0" step="0.1" placeholder="seconds">
+    </div>
+    <div class="custom-group">
+      <label>Mars &rarr; Earth (s)</label>
+      <input type="number" id="custom-earth" min="0" step="0.1" placeholder="seconds">
+    </div>
+    <div class="custom-group moon-input" style="display:none">
+      <label>Earth &rarr; Moon (s)</label>
+      <input type="number" id="custom-moon" min="0" step="0.1" placeholder="seconds">
+    </div>
+    <div class="custom-group moon-input" style="display:none">
+      <label>Moon &rarr; Earth (s)</label>
+      <input type="number" id="custom-from-moon" min="0" step="0.1" placeholder="seconds">
+    </div>
   </div>
   <button class="apply-btn" onclick="applyCustom()">Apply</button>
 </div>
@@ -238,8 +290,13 @@ function formatDelay(secs) {
   return m + 'm ' + s + 's';
 }
 
-function formatHuman(secs) {
-  if (secs < 2) return 'Light reaches the Moon in ~1.3s';
+function formatHuman(secs, type) {
+  if (type === 'moon') {
+    if (secs < 0.1) return 'Disabled';
+    return 'RTT: ' + formatDelay(secs * 2);
+  }
+  if (secs < 0.1) return 'Disabled';
+  if (secs < 2) return 'RTT: ' + formatDelay(secs * 2);
   if (secs < 60) return 'RTT: ' + formatDelay(secs * 2);
   const m = Math.floor(secs / 60);
   if (m < 5) return 'Mars at closest approach (~3 min)';
@@ -247,21 +304,44 @@ function formatHuman(secs) {
 }
 
 let currentPreset = null;
+let moonEnabled = false;
 
 async function fetchStatus() {
   try {
     const res = await fetch('/api/status');
     const data = await res.json();
+
+    // Mars
     document.getElementById('delay-mars').innerHTML =
       formatDelay(data.delay_to_mars) + '<span class="card-unit"></span>';
     document.getElementById('delay-earth').innerHTML =
       formatDelay(data.delay_to_earth) + '<span class="card-unit"></span>';
-    document.getElementById('delay-mars-human').textContent = formatHuman(data.delay_to_mars);
-    document.getElementById('delay-earth-human').textContent = formatHuman(data.delay_to_earth);
+    document.getElementById('delay-mars-human').textContent = formatHuman(data.delay_to_mars, 'mars');
+    document.getElementById('delay-earth-human').textContent = formatHuman(data.delay_to_earth, 'mars');
     document.getElementById('queue-mars').innerHTML =
       data.queue_to_mars + '<span class="card-unit"> pkts</span>';
     document.getElementById('queue-earth').innerHTML =
       data.queue_to_earth + '<span class="card-unit"> pkts</span>';
+
+    // Moon
+    if (data.moon_enabled) {
+      if (!moonEnabled) {
+        moonEnabled = true;
+        document.getElementById('moon-section').classList.add('visible');
+        document.querySelectorAll('.moon-input').forEach(el => el.style.display = '');
+      }
+      document.getElementById('delay-moon').innerHTML =
+        formatDelay(data.delay_to_moon) + '<span class="card-unit"></span>';
+      document.getElementById('delay-from-moon').innerHTML =
+        formatDelay(data.delay_from_moon) + '<span class="card-unit"></span>';
+      document.getElementById('delay-moon-human').textContent = formatHuman(data.delay_to_moon, 'moon');
+      document.getElementById('delay-from-moon-human').textContent = formatHuman(data.delay_from_moon, 'moon');
+      document.getElementById('queue-moon').innerHTML =
+        data.queue_to_moon + '<span class="card-unit"> pkts</span>';
+      document.getElementById('queue-from-moon').innerHTML =
+        data.queue_from_moon + '<span class="card-unit"> pkts</span>';
+    }
+
     document.getElementById('status-dot').className = 'status-dot';
     document.getElementById('status-text').textContent =
       'Connected to Redis | Updated ' + new Date().toLocaleTimeString();
@@ -281,7 +361,7 @@ async function loadPresets() {
     btn.className = 'preset-btn';
     btn.dataset.name = p.name;
     btn.innerHTML = '<div class="preset-name">' + p.label + '</div>'
-      + '<div class="preset-delay">' + p.display + ' one-way</div>';
+      + '<div class="preset-delay">' + p.display + '</div>';
     btn.onclick = () => applyPreset(p.name);
     grid.appendChild(btn);
   });
@@ -305,10 +385,19 @@ async function applyCustom() {
   const toEarth = parseFloat(document.getElementById('custom-earth').value) || 0;
   currentPreset = null;
   document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+
+  const body = {to_mars: toMars, to_earth: toEarth};
+  if (moonEnabled) {
+    const toMoon = parseFloat(document.getElementById('custom-moon').value);
+    const fromMoon = parseFloat(document.getElementById('custom-from-moon').value);
+    if (!isNaN(toMoon)) body.to_moon = toMoon;
+    if (!isNaN(fromMoon)) body.from_moon = fromMoon;
+  }
+
   await fetch('/api/delay', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({to_mars: toMars, to_earth: toEarth})
+    body: JSON.stringify(body)
   });
   fetchStatus();
 }

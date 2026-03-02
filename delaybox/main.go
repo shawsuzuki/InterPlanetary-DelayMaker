@@ -11,7 +11,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -21,233 +21,141 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const (
-	queueToMars      = "delay:to_mars"
-	queueToEarth     = "delay:to_earth"
-	configKeyToMars  = "config:delay_to_mars"
-	configKeyToEarth = "config:delay_to_earth"
-)
+const snapLen = 65535
 
-type Config struct {
-	EarthIface   string
-	MarsIface    string
-	RedisAddr    string
-	DelayToMars  time.Duration
-	DelayToEarth time.Duration
+// ── Types ────────────────────────────────────────────────────────────────────
+
+// link represents a unidirectional delayed network path.
+type link struct {
+	name      string       // human-readable, e.g., "earth→mars"
+	queueKey  string       // Redis sorted set key
+	configKey string       // Redis config key (seconds)
+	delay     atomic.Int64 // current delay in nanoseconds
 }
 
-type DelayDaemon struct {
-	config       Config
-	rdb          *redis.Client
-	earthConn    net.PacketConn
-	marsConn     net.PacketConn
-	ctx          context.Context
-	cancel       context.CancelFunc
-	mu           sync.RWMutex
-	delayToMars  time.Duration
-	delayToEarth time.Duration
-}
+// ── Main ─────────────────────────────────────────────────────────────────────
 
 func main() {
-	var config Config
-	var delayToMarsSec, delayToEarthSec int
-
-	flag.StringVar(&config.EarthIface, "earth-iface", "veth-earth", "Interface connected to Earth")
-	flag.StringVar(&config.MarsIface, "mars-iface", "veth-mars", "Interface connected to Mars")
-	flag.StringVar(&config.RedisAddr, "redis", "localhost:6379", "Redis address")
-	flag.IntVar(&delayToMarsSec, "delay-to-mars", 10, "Delay Earth->Mars in seconds")
-	flag.IntVar(&delayToEarthSec, "delay-to-earth", 10, "Delay Mars->Earth in seconds")
+	earthIface := flag.String("earth-iface", "veth-earth", "Earth-side interface (Mars link)")
+	marsIface := flag.String("mars-iface", "veth-mars", "Mars-side interface")
+	moonSrcIface := flag.String("moon-src-iface", "", "Earth-side interface (Moon link, optional)")
+	moonIface := flag.String("moon-iface", "", "Moon-side interface (optional)")
+	redisAddr := flag.String("redis", "localhost:6379", "Redis address")
+	delayToMarsSec := flag.Int("delay-to-mars", 10, "Initial Earth→Mars delay (seconds)")
+	delayToEarthSec := flag.Int("delay-to-earth", 10, "Initial Mars→Earth delay (seconds)")
+	delayToMoonSec := flag.Int("delay-to-moon", 1, "Initial Earth→Moon delay (seconds)")
+	delayFromMoonSec := flag.Int("delay-from-moon", 1, "Initial Moon→Earth delay (seconds)")
 	flag.Parse()
 
-	config.DelayToMars = time.Duration(delayToMarsSec) * time.Second
-	config.DelayToEarth = time.Duration(delayToEarthSec) * time.Second
-
-	daemon, err := NewDelayDaemon(config)
-	if err != nil {
-		log.Fatalf("Failed to create daemon: %v", err)
-	}
-
-	// Handle signals
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigCh
-		log.Println("Shutting down...")
-		daemon.Stop()
-	}()
-
-	daemon.Run()
-}
-
-func NewDelayDaemon(config Config) (*DelayDaemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Connect to Redis
-	rdb := redis.NewClient(&redis.Options{
-		Addr: config.RedisAddr,
-	})
-
-	// Test Redis connection
+	rdb := redis.NewClient(&redis.Options{Addr: *redisAddr})
 	if err := rdb.Ping(ctx).Err(); err != nil {
-		cancel()
-		return nil, fmt.Errorf("redis connection failed: %w", err)
+		log.Fatalf("Redis connection failed: %v", err)
 	}
 
-	// Clear old queue data
-	rdb.Del(ctx, queueToMars, queueToEarth)
+	// ── Earth ↔ Mars link ────────────────────────────────────────────────
+	toMars := newLink("earth→mars", "delay:to_mars", "config:delay_to_mars", *delayToMarsSec)
+	toEarth := newLink("mars→earth", "delay:to_earth", "config:delay_to_earth", *delayToEarthSec)
 
-	// Set initial delay configuration in Redis
-	rdb.Set(ctx, configKeyToMars, strconv.FormatFloat(config.DelayToMars.Seconds(), 'f', -1, 64), 0)
-	rdb.Set(ctx, configKeyToEarth, strconv.FormatFloat(config.DelayToEarth.Seconds(), 'f', -1, 64), 0)
+	rdb.Del(ctx, toMars.queueKey, toEarth.queueKey)
+	setInitialConfig(ctx, rdb, toMars)
+	setInitialConfig(ctx, rdb, toEarth)
 
-	// Open raw sockets
-	earthConn, err := openRawSocket(config.EarthIface)
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to open earth socket: %w", err)
+	earthHandle := openHandle(*earthIface)
+	marsHandle := openHandle(*marsIface)
+
+	go receiveLoop(ctx, rdb, earthHandle, toMars)
+	go sendLoop(ctx, rdb, marsHandle, toMars)
+	go receiveLoop(ctx, rdb, marsHandle, toEarth)
+	go sendLoop(ctx, rdb, earthHandle, toEarth)
+
+	allLinks := []*link{toMars, toEarth}
+
+	log.Printf("  Earth↔Mars: %s / %s (delay: %ds / %ds)",
+		*earthIface, *marsIface, *delayToMarsSec, *delayToEarthSec)
+
+	// ── Earth ↔ Moon link (optional) ─────────────────────────────────────
+	if *moonSrcIface != "" && *moonIface != "" {
+		toMoon := newLink("earth→moon", "delay:to_moon", "config:delay_to_moon", *delayToMoonSec)
+		fromMoon := newLink("moon→earth", "delay:from_moon", "config:delay_from_moon", *delayFromMoonSec)
+
+		rdb.Del(ctx, toMoon.queueKey, fromMoon.queueKey)
+		setInitialConfig(ctx, rdb, toMoon)
+		setInitialConfig(ctx, rdb, fromMoon)
+
+		moonSrcHandle := openHandle(*moonSrcIface)
+		moonHandle := openHandle(*moonIface)
+
+		go receiveLoop(ctx, rdb, moonSrcHandle, toMoon)
+		go sendLoop(ctx, rdb, moonHandle, toMoon)
+		go receiveLoop(ctx, rdb, moonHandle, fromMoon)
+		go sendLoop(ctx, rdb, moonSrcHandle, fromMoon)
+
+		allLinks = append(allLinks, toMoon, fromMoon)
+
+		log.Printf("  Earth↔Moon: %s / %s (delay: %ds / %ds)",
+			*moonSrcIface, *moonIface, *delayToMoonSec, *delayFromMoonSec)
 	}
 
-	// Open pcap handles
-	earthHandle, err := pcap.OpenLive(config.EarthIface, snapLen, true, pcap.BlockForever)
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to open mars socket: %w", err)
-	}
+	// Start config reload
+	go configReloadLoop(ctx, rdb, allLinks)
 
-	return &DelayDaemon{
-		config:       config,
-		rdb:          rdb,
-		earthConn:    earthConn,
-		marsConn:     marsConn,
-		ctx:          ctx,
-		cancel:       cancel,
-		delayToMars:  config.DelayToMars,
-		delayToEarth: config.DelayToEarth,
-	}, nil
+	log.Printf("L2 Delay Daemon started (%d links)", len(allLinks))
+
+	// Wait for signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+	log.Println("Shutting down...")
+	cancel()
 }
 
-		return nil, fmt.Errorf("failed to open earth interface: %w", err)
-	}
+// ── Link Helpers ─────────────────────────────────────────────────────────────
 
-	marsHandle, err := pcap.OpenLive(config.MarsIface, snapLen, true, pcap.BlockForever)
+func newLink(name, queueKey, configKey string, delaySec int) *link {
+	l := &link{
+		name:      name,
+		queueKey:  queueKey,
+		configKey: configKey,
+	}
+	l.delay.Store(int64(time.Duration(delaySec) * time.Second))
+	return l
+}
+
+func openHandle(iface string) *pcap.Handle {
+	h, err := pcap.OpenLive(iface, snapLen, true, pcap.BlockForever)
 	if err != nil {
-		earthHandle.Close()
-		cancel()
-		return nil, fmt.Errorf("failed to open mars interface: %w", err)
+		log.Fatalf("pcap open %s: %v", iface, err)
 	}
-
-	d := &DelayDaemon{
-		config:      config,
-		rdb:         rdb,
-		earthHandle: earthHandle,
-		marsHandle:  marsHandle,
-		ctx:         ctx,
-		cancel:      cancel,
-	}
-	d.delayToMars.Store(int64(config.DelayToMars))
-	d.delayToEarth.Store(int64(config.DelayToEarth))
-
-	return d, nil
+	return h
 }
 
-func (d *DelayDaemon) Run() {
-	log.Printf("L2 Delay Daemon started")
-	log.Printf("  Earth interface: %s", d.config.EarthIface)
-	log.Printf("  Mars interface:  %s", d.config.MarsIface)
-	log.Printf("  Earth->Mars delay: %v", d.config.DelayToMars)
-	log.Printf("  Mars->Earth delay: %v", d.config.DelayToEarth)
-	log.Printf("  Dynamic config via Redis: SET %s <seconds>, SET %s <seconds>", configKeyMars, configKeyEarth)
-
-	// Start config reload goroutine
-	go d.configReloadLoop()
-
-	// Start config reload goroutine
-	go d.configReloadLoop()
-
-	// Start receiver goroutines
-	go d.receiveLoop(d.earthConn, "earth", queueToMars, d.getDelayToMars)
-	go d.receiveLoop(d.marsConn, "mars", queueToEarth, d.getDelayToEarth)
-	go d.receiveLoop(d.earthHandle, "earth", queueToMars, &d.delayToMars)
-	go d.receiveLoop(d.marsHandle, "mars", queueToEarth, &d.delayToEarth)
-
-	// Start sender goroutines
-	go d.sendLoop(queueToMars, d.marsHandle, "mars")
-	go d.sendLoop(queueToEarth, d.earthHandle, "earth")
-
-	// Wait for context cancellation
-	<-d.ctx.Done()
+func setInitialConfig(ctx context.Context, rdb *redis.Client, l *link) {
+	secs := float64(time.Duration(l.delay.Load())) / float64(time.Second)
+	rdb.Set(ctx, l.configKey, strconv.FormatFloat(secs, 'f', -1, 64), 0)
 }
 
-func (d *DelayDaemon) configReloadLoop() {
+// ── Dynamic Configuration ────────────────────────────────────────────────────
+
+func configReloadLoop(ctx context.Context, rdb *redis.Client, links []*link) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-
 	for {
 		select {
-		case <-d.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Check for Mars delay update
-			if val, err := d.rdb.Get(d.ctx, configKeyMars).Int64(); err == nil {
-				newDelay := time.Duration(val) * time.Second
-				oldDelay := time.Duration(d.delayToMars.Load())
-				if newDelay != oldDelay {
-					d.delayToMars.Store(int64(newDelay))
-					log.Printf("[CONFIG] Earth->Mars delay changed: %v -> %v", oldDelay, newDelay)
-				}
-			}
-
-			// Check for Earth delay update
-			if val, err := d.rdb.Get(d.ctx, configKeyEarth).Int64(); err == nil {
-				newDelay := time.Duration(val) * time.Second
-				oldDelay := time.Duration(d.delayToEarth.Load())
-				if newDelay != oldDelay {
-					d.delayToEarth.Store(int64(newDelay))
-					log.Printf("[CONFIG] Mars->Earth delay changed: %v -> %v", oldDelay, newDelay)
-				}
+			for _, l := range links {
+				reloadDelay(ctx, rdb, l)
 			}
 		}
 	}
 }
 
-func (d *DelayDaemon) Stop() {
-	d.cancel()
-	d.earthHandle.Close()
-	d.marsHandle.Close()
-	d.rdb.Close()
-}
-
-// ── Dynamic Configuration ─────────────────────────────────────────────────────
-
-func (d *DelayDaemon) getDelayToMars() time.Duration {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.delayToMars
-}
-
-func (d *DelayDaemon) getDelayToEarth() time.Duration {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.delayToEarth
-}
-
-func (d *DelayDaemon) configReloadLoop() {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-		case <-ticker.C:
-			d.reloadDelayConfig(configKeyToMars, &d.delayToMars, "delay_to_mars")
-			d.reloadDelayConfig(configKeyToEarth, &d.delayToEarth, "delay_to_earth")
-		}
-	}
-}
-
-func (d *DelayDaemon) reloadDelayConfig(redisKey string, current *time.Duration, label string) {
-	val, err := d.rdb.Get(d.ctx, redisKey).Result()
+func reloadDelay(ctx context.Context, rdb *redis.Client, l *link) {
+	val, err := rdb.Get(ctx, l.configKey).Result()
 	if err != nil {
 		return
 	}
@@ -255,130 +163,95 @@ func (d *DelayDaemon) reloadDelayConfig(redisKey string, current *time.Duration,
 	if err != nil {
 		return
 	}
-	newDelay := time.Duration(secs * float64(time.Second))
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if *current != newDelay {
-		log.Printf("[config] %s: %v -> %v", label, *current, newDelay)
-		*current = newDelay
+	newDelay := int64(secs * float64(time.Second))
+	old := l.delay.Swap(newDelay)
+	if old != newDelay {
+		log.Printf("[config] %s: %v → %v", l.name, time.Duration(old), time.Duration(newDelay))
 	}
 }
 
-// ── Packet Reception ──────────────────────────────────────────────────────────
+// ── Packet Reception ─────────────────────────────────────────────────────────
 
-func (d *DelayDaemon) receiveLoop(conn net.PacketConn, sourceName, queueName string, getDelay func() time.Duration) {
-	buf := make([]byte, 65535)
-func (d *DelayDaemon) receiveLoop(handle *pcap.Handle, sourceName, queueName string, delayPtr *atomic.Int64) {
-	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-	packetSource.NoCopy = true
+func receiveLoop(ctx context.Context, rdb *redis.Client, handle *pcap.Handle, l *link) {
+	src := gopacket.NewPacketSource(handle, handle.LinkType())
+	src.NoCopy = true
 
 	for {
 		select {
-		case <-d.ctx.Done():
+		case <-ctx.Done():
 			return
-		case packet, ok := <-packetSource.Packets():
+		case pkt, ok := <-src.Packets():
 			if !ok {
 				return
 			}
-
-			// Get raw frame data
-			frame := packet.Data()
+			frame := pkt.Data()
 			if len(frame) == 0 {
 				continue
 			}
 
-			// Get current delay from atomic
-			delay := time.Duration(delayPtr.Load())
-
-			// Parse for logging
-			vlanID := parseVLAN(frame)
-			frameInfo := describeFrame(frame)
-
-		// Parse for logging
-		vlanID := parseVLAN(frame)
-		frameInfo := describeFrame(frame)
-
-		// Calculate send time using current delay
-		delay := getDelay()
-		sendTime := time.Now().Add(delay)
-		sendTimeStr := strconv.FormatInt(sendTime.UnixNano(), 10)
-			// Calculate send time
+			delay := time.Duration(l.delay.Load())
 			sendTime := time.Now().Add(delay)
-			sendTimeNano := sendTime.UnixNano()
 
-			// Store in Redis sorted set (score = send time in nanoseconds)
-			// Prepend timestamp to make each packet unique (even if same content)
+			// Prepend nanosecond timestamp for uniqueness (even if same frame content)
 			uniqueID := fmt.Sprintf("%d:", time.Now().UnixNano())
 			member := uniqueID + hex.EncodeToString(frame)
-			err := d.rdb.ZAdd(d.ctx, queueName, redis.Z{
-				Score:  float64(sendTimeNano),
-				Member: member,
-			}).Err()
 
-			if err != nil {
-				log.Printf("[%s] Redis error: %v", sourceName, err)
+			if err := rdb.ZAdd(ctx, l.queueKey, redis.Z{
+				Score: float64(sendTime.UnixNano()), Member: member,
+			}).Err(); err != nil {
+				log.Printf("[%s] Redis enqueue error: %v", l.name, err)
 				continue
 			}
 
+			vlanID := parseVLAN(frame)
+			info := describeFrame(frame)
 			vlanStr := ""
 			if vlanID > 0 {
 				vlanStr = fmt.Sprintf(" VLAN=%d", vlanID)
 			}
-			log.Printf("[%s->queue] Queued %d bytes%s, delay=%v | %s",
-				sourceName, len(frame), vlanStr, delay, frameInfo)
+			log.Printf("[%s] Queued %d bytes%s delay=%v | %s", l.name, len(frame), vlanStr, delay, info)
 		}
 	}
 }
 
-func (d *DelayDaemon) sendLoop(queueName string, handle *pcap.Handle, destName string) {
+// ── Packet Transmission ──────────────────────────────────────────────────────
+
+func sendLoop(ctx context.Context, rdb *redis.Client, handle *pcap.Handle, l *link) {
 	for {
 		select {
-		case <-d.ctx.Done():
+		case <-ctx.Done():
 			return
 		default:
 		}
 
-		now := time.Now().UnixNano()
-
-		// Get all frames that should be sent now
-		results, err := d.rdb.ZRangeByScore(d.ctx, queueName, &redis.ZRangeBy{
-			Min: "-inf",
-			Max: strconv.FormatInt(now, 10),
+		now := strconv.FormatInt(time.Now().UnixNano(), 10)
+		results, err := rdb.ZRangeByScore(ctx, l.queueKey, &redis.ZRangeBy{
+			Min: "-inf", Max: now,
 		}).Result()
 
 		if err != nil {
-			log.Printf("[->%s] Redis error: %v", destName, err)
+			log.Printf("[%s] Redis dequeue error: %v", l.name, err)
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 
 		for _, member := range results {
-			// Remove the unique ID prefix (format: "timestamp:hexdata")
 			parts := strings.SplitN(member, ":", 2)
 			if len(parts) != 2 {
-				log.Printf("[->%s] Invalid member format: %s", destName, member)
-				d.rdb.ZRem(d.ctx, queueName, member)
+				rdb.ZRem(ctx, l.queueKey, member)
 				continue
 			}
-			hexData := parts[1]
-			
-			frame, err := hex.DecodeString(hexData)
+			frame, err := hex.DecodeString(parts[1])
 			if err != nil {
-				log.Printf("[->%s] Decode error: %v", destName, err)
-				d.rdb.ZRem(d.ctx, queueName, member)
+				rdb.ZRem(ctx, l.queueKey, member)
 				continue
 			}
-
-			// Send the frame
-			err = handle.WritePacketData(frame)
-			if err != nil {
-				log.Printf("[->%s] Send error: %v", destName, err)
+			if err := handle.WritePacketData(frame); err != nil {
+				log.Printf("[%s] Send error: %v", l.name, err)
 			} else {
-				log.Printf("[->%s] Sent %d bytes", destName, len(frame))
+				log.Printf("[%s] Sent %d bytes", l.name, len(frame))
 			}
-
-			// Remove from queue
-			d.rdb.ZRem(d.ctx, queueName, member)
+			rdb.ZRem(ctx, l.queueKey, member)
 		}
 
 		if len(results) == 0 {
@@ -387,12 +260,12 @@ func (d *DelayDaemon) sendLoop(queueName string, handle *pcap.Handle, destName s
 	}
 }
 
+// ── Frame Parsing ────────────────────────────────────────────────────────────
 
 func parseVLAN(frame []byte) uint16 {
 	if len(frame) < 18 {
 		return 0
 	}
-	// Check for 802.1Q tag (0x8100)
 	if frame[12] == 0x81 && frame[13] == 0x00 {
 		return uint16(frame[14]&0x0F)<<8 | uint16(frame[15])
 	}
@@ -400,52 +273,39 @@ func parseVLAN(frame []byte) uint16 {
 }
 
 func describeFrame(frame []byte) string {
-	packet := gopacket.NewPacket(frame, layers.LayerTypeEthernet, gopacket.Default)
+	pkt := gopacket.NewPacket(frame, layers.LayerTypeEthernet, gopacket.Default)
 	var parts []string
-	if ethLayer := packet.Layer(layers.LayerTypeEthernet); ethLayer != nil {
-		eth := ethLayer.(*layers.Ethernet)
-		parts = append(parts, fmt.Sprintf("%s->%s", eth.SrcMAC, eth.DstMAC))
+	if eth := pkt.Layer(layers.LayerTypeEthernet); eth != nil {
+		e := eth.(*layers.Ethernet)
+		parts = append(parts, fmt.Sprintf("%s→%s", e.SrcMAC, e.DstMAC))
 	}
-	if arpLayer := packet.Layer(layers.LayerTypeARP); arpLayer != nil {
-		arp := arpLayer.(*layers.ARP)
-		if arp.Operation == 1 {
-			parts = append(parts, fmt.Sprintf("ARP-REQ who-has %v", net.IP(arp.DstProtAddress)))
+	if arp := pkt.Layer(layers.LayerTypeARP); arp != nil {
+		a := arp.(*layers.ARP)
+		if a.Operation == 1 {
+			parts = append(parts, fmt.Sprintf("ARP-REQ who-has %v", net.IP(a.DstProtAddress)))
 		} else {
-			parts = append(parts, fmt.Sprintf("ARP-REPLY %v is-at %v", net.IP(arp.SourceProtAddress), net.HardwareAddr(arp.SourceHwAddress)))
+			parts = append(parts, fmt.Sprintf("ARP-REPLY %v is-at %v", net.IP(a.SourceProtAddress), net.HardwareAddr(a.SourceHwAddress)))
 		}
 		return strings.Join(parts, " | ")
 	}
-	if ipLayer := packet.Layer(layers.LayerTypeIPv4); ipLayer != nil {
-		ip := ipLayer.(*layers.IPv4)
-		parts = append(parts, fmt.Sprintf("IP %s->%s", ip.SrcIP, ip.DstIP))
+	if ip := pkt.Layer(layers.LayerTypeIPv4); ip != nil {
+		i := ip.(*layers.IPv4)
+		parts = append(parts, fmt.Sprintf("IP %s→%s", i.SrcIP, i.DstIP))
 	}
-	if icmpLayer := packet.Layer(layers.LayerTypeICMPv4); icmpLayer != nil {
-		icmp := icmpLayer.(*layers.ICMPv4)
-		parts = append(parts, fmt.Sprintf("ICMP type=%d", icmp.TypeCode.Type()))
+	if icmp := pkt.Layer(layers.LayerTypeICMPv4); icmp != nil {
+		c := icmp.(*layers.ICMPv4)
+		parts = append(parts, fmt.Sprintf("ICMP type=%d", c.TypeCode.Type()))
 	}
-	if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
-		tcp := tcpLayer.(*layers.TCP)
-		parts = append(parts, fmt.Sprintf("TCP %d->%d", tcp.SrcPort, tcp.DstPort))
+	if tcp := pkt.Layer(layers.LayerTypeTCP); tcp != nil {
+		t := tcp.(*layers.TCP)
+		parts = append(parts, fmt.Sprintf("TCP %d→%d", t.SrcPort, t.DstPort))
 	}
-	if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
-		udp := udpLayer.(*layers.UDP)
-		parts = append(parts, fmt.Sprintf("UDP %d->%d", udp.SrcPort, udp.DstPort))
+	if udp := pkt.Layer(layers.LayerTypeUDP); udp != nil {
+		u := udp.(*layers.UDP)
+		parts = append(parts, fmt.Sprintf("UDP %d→%d", u.SrcPort, u.DstPort))
 	}
 	if len(parts) == 0 {
 		return "unknown"
 	}
 	return strings.Join(parts, " | ")
-}
-	return joinParts(parts)
-}
-
-func joinParts(parts []string) string {
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += " | "
-		}
-		result += p
-	}
-	return result
 }

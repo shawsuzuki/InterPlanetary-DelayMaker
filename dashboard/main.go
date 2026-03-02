@@ -18,32 +18,49 @@ var indexHTML embed.FS
 const (
 	configKeyToMars  = "config:delay_to_mars"
 	configKeyToEarth = "config:delay_to_earth"
+	configKeyToMoon  = "config:delay_to_moon"
+	configKeyFromMoon = "config:delay_from_moon"
 	queueToMars      = "delay:to_mars"
 	queueToEarth     = "delay:to_earth"
+	queueToMoon      = "delay:to_moon"
+	queueFromMoon    = "delay:from_moon"
 )
 
 type Status struct {
 	DelayToMars  float64 `json:"delay_to_mars"`
 	DelayToEarth float64 `json:"delay_to_earth"`
+	DelayToMoon  float64 `json:"delay_to_moon"`
+	DelayFromMoon float64 `json:"delay_from_moon"`
 	QueueToMars  int64   `json:"queue_to_mars"`
 	QueueToEarth int64   `json:"queue_to_earth"`
+	QueueToMoon  int64   `json:"queue_to_moon"`
+	QueueFromMoon int64  `json:"queue_from_moon"`
+	MoonEnabled  bool    `json:"moon_enabled"`
 }
 
 type DelayRequest struct {
-	ToMars  float64 `json:"to_mars"`
-	ToEarth float64 `json:"to_earth"`
+	ToMars    float64  `json:"to_mars"`
+	ToEarth   float64  `json:"to_earth"`
+	ToMoon    *float64 `json:"to_moon,omitempty"`
+	FromMoon  *float64 `json:"from_moon,omitempty"`
 }
 
 type PresetRequest struct {
 	Name string `json:"name"`
 }
 
-// Presets: one-way delay in seconds
-var presets = map[string][2]float64{
-	"moon":       {1.3, 1.3},
-	"mars_close": {182, 182},
-	"mars_far":   {1342, 1342},
-	"demo":       {5, 5},
+type PresetInfo struct {
+	Name    string  `json:"name"`
+	Label   string  `json:"label"`
+	Display string  `json:"display"`
+}
+
+// Presets: [toMars, toEarth, toMoon, fromMoon]
+var presets = map[string][4]float64{
+	"demo":       {5, 5, 1, 1},
+	"moon":       {0, 0, 1.3, 1.3},
+	"mars_close": {182, 182, 1.3, 1.3},
+	"mars_far":   {1342, 1342, 1.3, 1.3},
 }
 
 func main() {
@@ -70,8 +87,17 @@ func main() {
 		if val, err := rdb.Get(ctx, configKeyToEarth).Result(); err == nil {
 			status.DelayToEarth, _ = strconv.ParseFloat(val, 64)
 		}
+		if val, err := rdb.Get(ctx, configKeyToMoon).Result(); err == nil {
+			status.DelayToMoon, _ = strconv.ParseFloat(val, 64)
+			status.MoonEnabled = true
+		}
+		if val, err := rdb.Get(ctx, configKeyFromMoon).Result(); err == nil {
+			status.DelayFromMoon, _ = strconv.ParseFloat(val, 64)
+		}
 		status.QueueToMars = rdb.ZCard(ctx, queueToMars).Val()
 		status.QueueToEarth = rdb.ZCard(ctx, queueToEarth).Val()
+		status.QueueToMoon = rdb.ZCard(ctx, queueToMoon).Val()
+		status.QueueFromMoon = rdb.ZCard(ctx, queueFromMoon).Val()
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(status)
@@ -92,7 +118,7 @@ func main() {
 			http.Error(w, "unknown preset", http.StatusBadRequest)
 			return
 		}
-		setDelays(rdb, ctx, delays[0], delays[1])
+		setAllDelays(rdb, ctx, delays[0], delays[1], delays[2], delays[3])
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "preset": req.Name})
 	})
@@ -111,23 +137,27 @@ func main() {
 			http.Error(w, "delay must be non-negative", http.StatusBadRequest)
 			return
 		}
-		setDelays(rdb, ctx, req.ToMars, req.ToEarth)
+		// Set Mars delays
+		setDelay(rdb, ctx, configKeyToMars, req.ToMars)
+		setDelay(rdb, ctx, configKeyToEarth, req.ToEarth)
+		// Set Moon delays if provided
+		if req.ToMoon != nil {
+			setDelay(rdb, ctx, configKeyToMoon, *req.ToMoon)
+		}
+		if req.FromMoon != nil {
+			setDelay(rdb, ctx, configKeyFromMoon, *req.FromMoon)
+		}
+		log.Printf("[dashboard] Set delay: Mars=%.1fs/%.1fs", req.ToMars, req.ToEarth)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
 	http.HandleFunc("/api/presets", func(w http.ResponseWriter, r *http.Request) {
-		type PresetInfo struct {
-			Name    string  `json:"name"`
-			Label   string  `json:"label"`
-			Delay   float64 `json:"delay"`
-			Display string  `json:"display"`
-		}
 		list := []PresetInfo{
-			{Name: "demo", Label: "Demo", Delay: 5, Display: "5s"},
-			{Name: "moon", Label: "Moon", Delay: 1.3, Display: "1.3s"},
-			{Name: "mars_close", Label: "Mars (closest)", Delay: 182, Display: "3m 2s"},
-			{Name: "mars_far", Label: "Mars (farthest)", Delay: 1342, Display: "22m 22s"},
+			{Name: "demo", Label: "Demo", Display: "Mars 5s / Moon 1s"},
+			{Name: "moon", Label: "Moon Only", Display: "1.3s one-way"},
+			{Name: "mars_close", Label: "Mars (closest)", Display: "3m 2s one-way"},
+			{Name: "mars_far", Label: "Mars (farthest)", Display: "22m 22s one-way"},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(list)
@@ -137,8 +167,14 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func setDelays(rdb *redis.Client, ctx context.Context, toMars, toEarth float64) {
-	rdb.Set(ctx, configKeyToMars, strconv.FormatFloat(toMars, 'f', -1, 64), 0)
-	rdb.Set(ctx, configKeyToEarth, strconv.FormatFloat(toEarth, 'f', -1, 64), 0)
-	log.Printf("[dashboard] Set delay: Earth->Mars=%.1fs, Mars->Earth=%.1fs", toMars, toEarth)
+func setDelay(rdb *redis.Client, ctx context.Context, key string, secs float64) {
+	rdb.Set(ctx, key, strconv.FormatFloat(secs, 'f', -1, 64), 0)
+}
+
+func setAllDelays(rdb *redis.Client, ctx context.Context, toMars, toEarth, toMoon, fromMoon float64) {
+	setDelay(rdb, ctx, configKeyToMars, toMars)
+	setDelay(rdb, ctx, configKeyToEarth, toEarth)
+	setDelay(rdb, ctx, configKeyToMoon, toMoon)
+	setDelay(rdb, ctx, configKeyFromMoon, fromMoon)
+	log.Printf("[dashboard] Set delay: Mars=%.1fs/%.1fs, Moon=%.1fs/%.1fs", toMars, toEarth, toMoon, fromMoon)
 }

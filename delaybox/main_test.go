@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -9,148 +10,144 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func newTestDaemon(t *testing.T) (*DelayDaemon, *miniredis.Miniredis) {
+func setupTest(t *testing.T) (*miniredis.Miniredis, *redis.Client, context.Context, context.CancelFunc) {
 	t.Helper()
-	s := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(func() {
-		cancel()
-		rdb.Close()
-	})
-	return &DelayDaemon{
-		rdb:          rdb,
-		ctx:          ctx,
-		cancel:       cancel,
-		delayToMars:  10 * time.Second,
-		delayToEarth: 10 * time.Second,
-	}, s
+	t.Cleanup(func() { cancel(); rdb.Close() })
+	return mr, rdb, ctx, cancel
 }
 
-func TestGetDelay_InitialValues(t *testing.T) {
-	d, _ := newTestDaemon(t)
-	if got := d.getDelayToMars(); got != 10*time.Second {
-		t.Errorf("getDelayToMars() = %v, want %v", got, 10*time.Second)
+func TestNewLink(t *testing.T) {
+	l := newLink("test", "q:test", "config:test", 10)
+	if got := time.Duration(l.delay.Load()); got != 10*time.Second {
+		t.Errorf("delay = %v, want 10s", got)
 	}
-	if got := d.getDelayToEarth(); got != 10*time.Second {
-		t.Errorf("getDelayToEarth() = %v, want %v", got, 10*time.Second)
+	if l.name != "test" {
+		t.Errorf("name = %q, want %q", l.name, "test")
+	}
+	if l.queueKey != "q:test" {
+		t.Errorf("queueKey = %q, want %q", l.queueKey, "q:test")
 	}
 }
 
-func TestReloadDelayConfig_UpdatesMarsDelay(t *testing.T) {
-	d, s := newTestDaemon(t)
+func TestSetInitialConfig(t *testing.T) {
+	mr, rdb, ctx, _ := setupTest(t)
+	l := newLink("test", "q:test", "config:test", 10)
+	setInitialConfig(ctx, rdb, l)
 
-	s.Set("config:delay_to_mars", "1200")
-	d.reloadDelayConfig(configKeyToMars, &d.delayToMars, "delay_to_mars")
-
-	if got := d.getDelayToMars(); got != 1200*time.Second {
-		t.Errorf("getDelayToMars() = %v, want %v", got, 1200*time.Second)
+	val, err := mr.Get("config:test")
+	if err != nil {
+		t.Fatalf("Redis get: %v", err)
 	}
-	// Earth delay should be unchanged
-	if got := d.getDelayToEarth(); got != 10*time.Second {
-		t.Errorf("getDelayToEarth() should be unchanged, got %v", got)
-	}
-}
-
-func TestReloadDelayConfig_UpdatesEarthDelay(t *testing.T) {
-	d, s := newTestDaemon(t)
-
-	s.Set("config:delay_to_earth", "600")
-	d.reloadDelayConfig(configKeyToEarth, &d.delayToEarth, "delay_to_earth")
-
-	if got := d.getDelayToEarth(); got != 600*time.Second {
-		t.Errorf("getDelayToEarth() = %v, want %v", got, 600*time.Second)
-	}
-	// Mars delay should be unchanged
-	if got := d.getDelayToMars(); got != 10*time.Second {
-		t.Errorf("getDelayToMars() should be unchanged, got %v", got)
+	secs, _ := strconv.ParseFloat(val, 64)
+	if secs != 10 {
+		t.Errorf("initial config = %v, want 10", secs)
 	}
 }
 
-func TestReloadDelayConfig_FloatSeconds(t *testing.T) {
-	d, s := newTestDaemon(t)
+func TestReloadDelay_Update(t *testing.T) {
+	mr, rdb, ctx, _ := setupTest(t)
+	l := newLink("test", "q:test", "config:test", 10)
 
-	s.Set("config:delay_to_mars", "0.5")
-	d.reloadDelayConfig(configKeyToMars, &d.delayToMars, "delay_to_mars")
+	mr.Set("config:test", "1200")
+	reloadDelay(ctx, rdb, l)
 
-	if got := d.getDelayToMars(); got != 500*time.Millisecond {
-		t.Errorf("getDelayToMars() = %v, want %v", got, 500*time.Millisecond)
+	if got := time.Duration(l.delay.Load()); got != 1200*time.Second {
+		t.Errorf("delay = %v, want 1200s", got)
 	}
 }
 
-func TestReloadDelayConfig_NoKey(t *testing.T) {
-	d, _ := newTestDaemon(t)
+func TestReloadDelay_Float(t *testing.T) {
+	mr, rdb, ctx, _ := setupTest(t)
+	l := newLink("test", "q:test", "config:test", 1)
 
-	// No key in Redis — delay should stay at initial value
-	d.reloadDelayConfig(configKeyToMars, &d.delayToMars, "delay_to_mars")
+	mr.Set("config:test", "1.3")
+	reloadDelay(ctx, rdb, l)
 
-	if got := d.getDelayToMars(); got != 10*time.Second {
-		t.Errorf("getDelayToMars() = %v, want %v", got, 10*time.Second)
+	got := time.Duration(l.delay.Load())
+	want := time.Duration(1.3 * float64(time.Second))
+	if got != want {
+		t.Errorf("delay = %v, want %v", got, want)
 	}
 }
 
-func TestReloadDelayConfig_InvalidValue(t *testing.T) {
-	d, s := newTestDaemon(t)
+func TestReloadDelay_NoKey(t *testing.T) {
+	_, rdb, ctx, _ := setupTest(t)
+	l := newLink("test", "q:test", "config:test", 10)
 
-	s.Set("config:delay_to_mars", "not_a_number")
-	d.reloadDelayConfig(configKeyToMars, &d.delayToMars, "delay_to_mars")
+	reloadDelay(ctx, rdb, l)
 
-	if got := d.getDelayToMars(); got != 10*time.Second {
-		t.Errorf("getDelayToMars() = %v, want %v (should ignore invalid value)", got, 10*time.Second)
+	if got := time.Duration(l.delay.Load()); got != 10*time.Second {
+		t.Errorf("delay = %v, want 10s (unchanged)", got)
 	}
 }
 
-func TestReloadDelayConfig_SameValueNoChange(t *testing.T) {
-	d, s := newTestDaemon(t)
+func TestReloadDelay_InvalidValue(t *testing.T) {
+	mr, rdb, ctx, _ := setupTest(t)
+	l := newLink("test", "q:test", "config:test", 10)
 
-	s.Set("config:delay_to_mars", "10")
-	d.reloadDelayConfig(configKeyToMars, &d.delayToMars, "delay_to_mars")
+	mr.Set("config:test", "not_a_number")
+	reloadDelay(ctx, rdb, l)
 
-	if got := d.getDelayToMars(); got != 10*time.Second {
-		t.Errorf("getDelayToMars() = %v, want %v", got, 10*time.Second)
+	if got := time.Duration(l.delay.Load()); got != 10*time.Second {
+		t.Errorf("delay = %v, want 10s (unchanged)", got)
+	}
+}
+
+func TestReloadDelay_SameValue(t *testing.T) {
+	mr, rdb, ctx, _ := setupTest(t)
+	l := newLink("test", "q:test", "config:test", 10)
+
+	mr.Set("config:test", "10")
+	reloadDelay(ctx, rdb, l)
+
+	if got := time.Duration(l.delay.Load()); got != 10*time.Second {
+		t.Errorf("delay = %v, want 10s", got)
 	}
 }
 
 func TestConfigReloadLoop_PicksUpChanges(t *testing.T) {
-	d, s := newTestDaemon(t)
+	mr, rdb, ctx, _ := setupTest(t)
 
-	// Set initial values
-	s.Set("config:delay_to_mars", "10")
-	s.Set("config:delay_to_earth", "10")
+	toMars := newLink("earth→mars", "q:mars", "config:mars", 10)
+	toMoon := newLink("earth→moon", "q:moon", "config:moon", 1)
+	mr.Set("config:mars", "10")
+	mr.Set("config:moon", "1")
 
-	// Start configReloadLoop in background
-	go d.configReloadLoop()
+	go configReloadLoop(ctx, rdb, []*link{toMars, toMoon})
 
-	// Change delay via Redis
-	s.Set("config:delay_to_mars", "600")
-	s.Set("config:delay_to_earth", "300")
-
-	// Wait for reload (ticker is 1s, give some margin)
+	// Change both
+	mr.Set("config:mars", "600")
+	mr.Set("config:moon", "1.3")
 	time.Sleep(1500 * time.Millisecond)
 
-	if got := d.getDelayToMars(); got != 600*time.Second {
-		t.Errorf("getDelayToMars() = %v, want %v", got, 600*time.Second)
+	if got := time.Duration(toMars.delay.Load()); got != 600*time.Second {
+		t.Errorf("mars delay = %v, want 600s", got)
 	}
-	if got := d.getDelayToEarth(); got != 300*time.Second {
-		t.Errorf("getDelayToEarth() = %v, want %v", got, 300*time.Second)
+	want := time.Duration(1.3 * float64(time.Second))
+	if got := time.Duration(toMoon.delay.Load()); got != want {
+		t.Errorf("moon delay = %v, want %v", got, want)
 	}
 }
 
 func TestConfigReloadLoop_StopsOnCancel(t *testing.T) {
-	d, _ := newTestDaemon(t)
+	_, rdb, ctx, cancel := setupTest(t)
+	l := newLink("test", "q:test", "config:test", 10)
 
 	done := make(chan struct{})
 	go func() {
-		d.configReloadLoop()
+		configReloadLoop(ctx, rdb, []*link{l})
 		close(done)
 	}()
 
-	d.cancel()
+	cancel()
 
 	select {
 	case <-done:
-		// OK - loop exited cleanly
+		// OK
 	case <-time.After(2 * time.Second):
-		t.Error("configReloadLoop did not stop after context cancel")
+		t.Error("configReloadLoop did not stop after cancel")
 	}
 }
