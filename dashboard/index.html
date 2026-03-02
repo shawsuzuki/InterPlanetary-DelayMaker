@@ -71,13 +71,12 @@
     font-size: 0.6em; color: #5a7a9a; background: #141b2a; padding: 0 6px; white-space: nowrap;
   }
 
-  /* Packet dots: positioned by JS, smooth CSS transition between polls */
+  /* Packet dots: positioned by JS each poll (no transition to avoid backwards glitch) */
   .pkt {
     position: absolute;
     width: 6px; height: 6px;
     border-radius: 50%;
     top: 2px;
-    transition: left 1s linear;
     opacity: 0.9;
   }
   .pkt.fwd { background: #4a9eff; box-shadow: 0 0 4px #4a9eff80; }
@@ -295,7 +294,7 @@
       <div class="input-group"><label>Interval (s)</label><input type="number" id="ramp-interval" value="1" min="0.1" step="0.1"></div>
       <div class="input-group"><label>From (s)</label><input type="number" id="ramp-from" min="0" step="1" placeholder="start"></div>
       <div class="input-group"><label>To (s)</label><input type="number" id="ramp-to" min="0" step="1" placeholder="end"></div>
-      <div class="input-group"><label>Delta per tick (s)</label><input type="number" id="ramp-step" step="0.1" placeholder="auto (neg = decrease)"></div>
+      <div class="input-group"><label>Delta per tick (s)</label><input type="number" id="ramp-step" step="0.1" placeholder="0 = ±1 auto, negative to decrease"></div>
     </div>
     <button class="btn btn-primary mt-12" onclick="startRamp()">Start</button>
     <div class="ramp-badges" id="ramp-badges"></div>
@@ -506,17 +505,17 @@ async function fetchRamps() {
 // ── Commands ───────────────────────────────────────
 const TARGETS = {
   earth:[
-    {label:'Ping Mars',cmd:'docker exec earth ping -W 30 10.0.0.3'},
-    {label:'Ping Moon',cmd:'docker exec earth ping -W 5 10.1.0.3',need:'moon'},
-    {label:'Ping Custom',cmd:'docker exec earth ping -W 15 10.2.0.3',need:'custom'},
+    {label:'Ping Mars',cmd:'docker exec earth ping 10.0.0.3'},
+    {label:'Ping Moon',cmd:'docker exec earth ping 10.1.0.3',need:'moon'},
+    {label:'Ping Custom',cmd:'docker exec earth ping 10.2.0.3',need:'custom'},
     {label:'Send file',cmd:'docker cp samples/mars_sol0.jpeg earth:/tmp/'},
     {label:'NC listen',cmd:'docker exec mars sh -c "nc -l -p 9000 > /tmp/r.jpg" &'},
     {label:'NC send',cmd:'docker exec earth sh -c "nc 10.0.0.3 9000 < /tmp/mars_sol0.jpeg"'},
     {label:'View logs',cmd:'docker compose logs -f delaybox'},
   ],
-  mars:[{label:'Ping Earth',cmd:'docker exec mars ping -W 30 10.0.0.2'},{label:'View logs',cmd:'docker compose logs -f delaybox'}],
-  moon:[{label:'Ping Earth',cmd:'docker exec moon ping -W 5 10.1.0.2'},{label:'View logs',cmd:'docker compose logs -f delaybox'}],
-  custom:[{label:'Ping Earth',cmd:'docker exec custom ping -W 15 10.2.0.2'},{label:'View logs',cmd:'docker compose logs -f delaybox'}],
+  mars:[{label:'Ping Earth',cmd:'docker exec mars ping 10.0.0.2'},{label:'View logs',cmd:'docker compose logs -f delaybox'}],
+  moon:[{label:'Ping Earth',cmd:'docker exec moon ping 10.1.0.2'},{label:'View logs',cmd:'docker compose logs -f delaybox'}],
+  custom:[{label:'Ping Earth',cmd:'docker exec custom ping 10.2.0.2'},{label:'View logs',cmd:'docker compose logs -f delaybox'}],
 };
 function renderCommands() {
   const origin = document.getElementById('origin-select').value;
