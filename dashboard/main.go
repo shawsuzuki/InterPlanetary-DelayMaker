@@ -106,13 +106,12 @@ type RampInfo struct {
 }
 
 // ── Presets ──────────────────────────────────────────────────────────────────
-// [toMars, toEarth, toMoon, fromMoon]
-// Source: NASA/ESA — Mars closest 54.6Mkm (182s), farthest 401Mkm (1338s), Moon 384400km (1.28s)
+// [toMars, toEarth] — presets only affect Mars; Moon stays at 1.28s (fixed)
 
-var presets = map[string][4]float64{
-	"demo":       {5, 5, 1, 1},
-	"mars_close": {182, 182, 1.28, 1.28},
-	"mars_far":   {1338, 1338, 1.28, 1.28},
+var presets = map[string][2]float64{
+	"demo":       {5, 5},
+	"mars_close": {182, 182},
+	"mars_far":   {1338, 1338},
 }
 
 // ── Ramp State ──────────────────────────────────────────────────────────────
@@ -205,10 +204,8 @@ func main() {
 		}
 		setDelay(rdb, ctx, configKeyToMars, delays[0])
 		setDelay(rdb, ctx, configKeyToEarth, delays[1])
-		setDelay(rdb, ctx, configKeyToMoon, delays[2])
-		setDelay(rdb, ctx, configKeyFromMoon, delays[3])
-		// Presets don't touch Custom link
-		log.Printf("[dashboard] Preset %s: Mars=%.1fs, Moon=%.2fs", req.Name, delays[0], delays[2])
+		// Presets only affect Mars; Moon (1.28s) and Custom are untouched
+		log.Printf("[dashboard] Preset %s: Mars=%.1fs", req.Name, delays[0])
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "preset": req.Name})
 	})
@@ -245,7 +242,7 @@ func main() {
 	// ── GET /api/presets ────────────────────────────────────────────────
 	http.HandleFunc("/api/presets", func(w http.ResponseWriter, r *http.Request) {
 		list := []PresetInfo{
-			{Name: "demo", Label: "Demo", Display: "Mars 5s / Moon 1s"},
+			{Name: "demo", Label: "Demo", Display: "Mars 5s"},
 			{Name: "mars_close", Label: "Mars (closest)", Display: "3m 2s one-way"},
 			{Name: "mars_far", Label: "Mars (farthest)", Display: "22m 18s one-way"},
 		}
@@ -277,9 +274,10 @@ func setDelay(rdb *redis.Client, ctx context.Context, key string, secs float64) 
 	rdb.Set(ctx, key, strconv.FormatFloat(secs, 'f', -1, 64), 0)
 }
 
-// packetPositions returns progress (0.0→1.0) for up to 30 packets in a queue.
-// Each packet's score is the send_time in nanoseconds.
+// packetPositions returns progress (0.0→1.0) for up to 30 in-flight packets.
+// Each packet's score is the scheduled send_time in nanoseconds.
 // progress = 1 - (send_time - now) / delay
+// Packets with remaining <= 0 are stale (already transmitted) and skipped.
 func packetPositions(ctx context.Context, rdb *redis.Client, queueKey string, delaySec float64, nowNs float64) []float64 {
 	if delaySec < 0.001 {
 		return []float64{}
@@ -292,12 +290,12 @@ func packetPositions(ctx context.Context, rdb *redis.Client, queueKey string, de
 	positions := make([]float64, 0, len(results))
 	for _, z := range results {
 		remaining := z.Score - nowNs
+		if remaining <= 0 {
+			continue // already transmitted — stale entry awaiting cleanup
+		}
 		progress := 1.0 - (remaining / delayNs)
 		if progress < 0 {
 			progress = 0
-		}
-		if progress > 1 {
-			progress = 1
 		}
 		// Round to 3 decimals to reduce JSON size
 		progress = math.Round(progress*1000) / 1000

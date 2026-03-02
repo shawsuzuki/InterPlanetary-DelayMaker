@@ -43,8 +43,11 @@
 
   /* ── Visualization ───────────────────────────────── */
   .vis { background: #141b2a; border: 1px solid #1e2a3a; border-radius: 12px; padding: 18px 20px; margin-bottom: 20px; }
-  .vis-link { display: flex; align-items: center; margin-bottom: 16px; }
-  .vis-link:last-child { margin-bottom: 0; }
+  .vis-layout { display: flex; align-items: center; }
+  .vis-hub { flex-shrink: 0; margin-right: 10px; }
+  .vis-spokes { flex: 1; display: flex; flex-direction: column; gap: 14px; }
+  .vis-spoke { display: flex; align-items: center; }
+  .hidden-section.vis-spoke.visible { display: flex; }
   .vis-node { text-align: center; width: 56px; flex-shrink: 0; }
   .vis-node-dot { width: 18px; height: 18px; border-radius: 50%; margin: 0 auto 3px; border: 2px solid; }
   .vis-node-label { font-size: 0.6em; font-weight: 600; letter-spacing: 0.5px; }
@@ -112,9 +115,9 @@
   .mars-toggle button:hover { border-color: #3a5a8a; }
   .mars-toggle button.active { border-color: #ff6a4a; color: #ff6a4a; background: #1a1210; }
   .mars-toggle .toggle-sub { font-size: 0.75em; font-weight: 400; color: #5a6a7a; display: block; margin-top: 2px; }
-  .moon-display { display: flex; align-items: center; gap: 12px; }
-  .moon-display .val { font-size: 1.4em; font-weight: 700; color: #c8c8aa; }
-  .moon-display .label { font-size: 0.8em; color: #5a6a7a; }
+  .moon-toggle button { cursor: default; }
+  .moon-toggle button:hover { border-color: #1e2a3a; }
+  .moon-toggle button.active { border-color: #c8c8aa; color: #c8c8aa; background: #1a1a10; }
   .input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .input-group label { display: block; font-size: 0.7em; color: #7a8a9a; margin-bottom: 3px; }
   .input-group input, .input-group select {
@@ -171,35 +174,40 @@
 <div class="container">
 
   <div class="vis">
-    <div class="vis-link" id="vis-mars-link">
-      <div class="vis-node c-earth"><div class="vis-node-dot"></div><div class="vis-node-label">EARTH</div><div class="vis-node-ip">10.0.0.2</div></div>
-      <div class="vis-track">
-        <div class="vis-track-line"></div>
-        <div class="vis-lane fwd" id="mars-fwd"></div>
-        <div class="vis-lane rev" id="mars-rev"></div>
-        <div class="vis-delay-label" id="mars-vis-delay">--</div>
+    <div class="vis-layout">
+      <div class="vis-node c-earth vis-hub">
+        <div class="vis-node-dot"></div>
+        <div class="vis-node-label">EARTH</div>
       </div>
-      <div class="vis-node c-mars"><div class="vis-node-dot"></div><div class="vis-node-label">MARS</div><div class="vis-node-ip">10.0.0.3</div></div>
-    </div>
-    <div class="vis-link hidden-section" id="vis-moon-link">
-      <div class="vis-node c-earth"><div class="vis-node-dot"></div><div class="vis-node-label">EARTH</div><div class="vis-node-ip">10.1.0.2</div></div>
-      <div class="vis-track">
-        <div class="vis-track-line"></div>
-        <div class="vis-lane fwd" id="moon-fwd"></div>
-        <div class="vis-lane rev" id="moon-rev"></div>
-        <div class="vis-delay-label" id="moon-vis-delay">--</div>
+      <div class="vis-spokes">
+        <div class="vis-spoke" id="vis-mars-link">
+          <div class="vis-track">
+            <div class="vis-track-line"></div>
+            <div class="vis-lane fwd" id="mars-fwd"></div>
+            <div class="vis-lane rev" id="mars-rev"></div>
+            <div class="vis-delay-label" id="mars-vis-delay">--</div>
+          </div>
+          <div class="vis-node c-mars"><div class="vis-node-dot"></div><div class="vis-node-label">MARS</div><div class="vis-node-ip">10.0.0.3</div></div>
+        </div>
+        <div class="vis-spoke hidden-section" id="vis-moon-link">
+          <div class="vis-track">
+            <div class="vis-track-line"></div>
+            <div class="vis-lane fwd" id="moon-fwd"></div>
+            <div class="vis-lane rev" id="moon-rev"></div>
+            <div class="vis-delay-label" id="moon-vis-delay">--</div>
+          </div>
+          <div class="vis-node c-moon"><div class="vis-node-dot"></div><div class="vis-node-label">MOON</div><div class="vis-node-ip">10.1.0.3</div></div>
+        </div>
+        <div class="vis-spoke hidden-section" id="vis-custom-link">
+          <div class="vis-track">
+            <div class="vis-track-line"></div>
+            <div class="vis-lane fwd" id="custom-fwd"></div>
+            <div class="vis-lane rev" id="custom-rev"></div>
+            <div class="vis-delay-label" id="custom-vis-delay">--</div>
+          </div>
+          <div class="vis-node c-custom"><div class="vis-node-dot"></div><div class="vis-node-label">CUSTOM</div><div class="vis-node-ip">10.2.0.3</div></div>
+        </div>
       </div>
-      <div class="vis-node c-moon"><div class="vis-node-dot"></div><div class="vis-node-label">MOON</div><div class="vis-node-ip">10.1.0.3</div></div>
-    </div>
-    <div class="vis-link hidden-section" id="vis-custom-link">
-      <div class="vis-node c-earth"><div class="vis-node-dot"></div><div class="vis-node-label">EARTH</div><div class="vis-node-ip">10.2.0.2</div></div>
-      <div class="vis-track">
-        <div class="vis-track-line"></div>
-        <div class="vis-lane fwd" id="custom-fwd"></div>
-        <div class="vis-lane rev" id="custom-rev"></div>
-        <div class="vis-delay-label" id="custom-vis-delay">--</div>
-      </div>
-      <div class="vis-node c-custom"><div class="vis-node-dot"></div><div class="vis-node-label">CUSTOM</div><div class="vis-node-ip">10.2.0.3</div></div>
     </div>
   </div>
 
@@ -261,9 +269,8 @@
   </div>
   <div class="setting-block hidden-section" id="settings-moon">
     <h3>Moon Delay</h3>
-    <div class="moon-display">
-      <span class="val" id="moon-val">1.28s</span>
-      <span class="label">one-way (NASA: 384,400 km)</span>
+    <div class="mars-toggle moon-toggle">
+      <button class="active" id="moon-btn"><span id="moon-val">1.28s</span><span class="toggle-sub">one-way (fixed)</span></button>
     </div>
   </div>
   <div class="setting-block hidden-section" id="settings-custom">
@@ -275,7 +282,7 @@
     <button class="btn btn-primary mt-12" onclick="applyCustomDelay()">Apply</button>
   </div>
   <div class="setting-block">
-    <h3>Dynamic Ramp</h3>
+    <h3>Dynamic Delay</h3>
     <div class="input-grid">
       <div class="input-group"><label>Target Link</label>
         <select id="ramp-link">
@@ -288,9 +295,9 @@
       <div class="input-group"><label>Interval (s)</label><input type="number" id="ramp-interval" value="1" min="0.1" step="0.1"></div>
       <div class="input-group"><label>From (s)</label><input type="number" id="ramp-from" min="0" step="1" placeholder="start"></div>
       <div class="input-group"><label>To (s)</label><input type="number" id="ramp-to" min="0" step="1" placeholder="end"></div>
-      <div class="input-group"><label>Step (s/tick)</label><input type="number" id="ramp-step" step="0.1" placeholder="auto if 0"></div>
+      <div class="input-group"><label>Delta per tick (s)</label><input type="number" id="ramp-step" step="0.1" placeholder="auto (neg = decrease)"></div>
     </div>
-    <button class="btn btn-primary mt-12" onclick="startRamp()">Start Ramp</button>
+    <button class="btn btn-primary mt-12" onclick="startRamp()">Start</button>
     <div class="ramp-badges" id="ramp-badges"></div>
   </div>
 </div>
@@ -473,12 +480,12 @@ async function startRamp() {
     interval: parseFloat(document.getElementById('ramp-interval').value)||1,
   };
   await fetch('/api/ramp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  addLog('Ramp started: '+body.link+' '+body.from+'→'+body.to, 'ls', 'settings');
+  addLog('Dynamic delay started: '+body.link+' '+body.from+'→'+body.to, 'ls', 'settings');
   fetchRamps();
 }
 async function stopRamp(link) {
   await fetch('/api/ramp?link='+encodeURIComponent(link),{method:'DELETE'});
-  addLog('Ramp stopped: '+link, 'ls', 'settings');
+  addLog('Dynamic delay stopped: '+link, 'ls', 'settings');
   fetchRamps();
 }
 async function fetchRamps() {
@@ -486,7 +493,7 @@ async function fetchRamps() {
     const res = await fetch('/api/ramp');
     const ramps = await res.json();
     const box = document.getElementById('ramp-badges');
-    if (!ramps||ramps.length===0) { box.innerHTML='<span style="color:#3a4a5a;font-size:0.8em">No active ramps</span>'; return; }
+    if (!ramps||ramps.length===0) { box.innerHTML='<span style="color:#3a4a5a;font-size:0.8em">No active dynamic delays</span>'; return; }
     box.innerHTML = ramps.map(r =>
       '<div class="ramp-badge"><span class="ramp-info">'+r.link+'</span>'+
       '<span class="ramp-val">'+r.current.toFixed(1)+'s</span>'+
@@ -554,7 +561,7 @@ async function fetchStatus() {
       document.getElementById('queue-moon').innerHTML = d.queue_to_moon+'<span class="card-unit"> pkts</span>';
       document.getElementById('queue-from-moon').innerHTML = d.queue_from_moon+'<span class="card-unit"> pkts</span>';
       updateVis('moon', d.delay_to_moon, d.delay_from_moon, d.pkts_to_moon, d.pkts_from_moon, 'rev-moon');
-      document.getElementById('moon-val').textContent = fmtD(d.delay_to_moon);
+      document.getElementById('moon-val').textContent = d.delay_to_moon.toFixed(2)+'s';
     }
 
     // Custom
