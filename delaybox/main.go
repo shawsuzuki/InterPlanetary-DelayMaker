@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,8 +21,10 @@ import (
 )
 
 const (
-	queueToMars  = "delay:to_mars"
-	queueToEarth = "delay:to_earth"
+	queueToMars      = "delay:to_mars"
+	queueToEarth     = "delay:to_earth"
+	configKeyToMars  = "config:delay_to_mars"
+	configKeyToEarth = "config:delay_to_earth"
 )
 
 type Config struct {
@@ -32,12 +36,15 @@ type Config struct {
 }
 
 type DelayDaemon struct {
-	config      Config
-	rdb         *redis.Client
-	earthConn   net.PacketConn
-	marsConn    net.PacketConn
-	ctx         context.Context
-	cancel      context.CancelFunc
+	config       Config
+	rdb          *redis.Client
+	earthConn    net.PacketConn
+	marsConn     net.PacketConn
+	ctx          context.Context
+	cancel       context.CancelFunc
+	mu           sync.RWMutex
+	delayToMars  time.Duration
+	delayToEarth time.Duration
 }
 
 func main() {
@@ -89,6 +96,10 @@ func NewDelayDaemon(config Config) (*DelayDaemon, error) {
 	// Clear old queue data
 	rdb.Del(ctx, queueToMars, queueToEarth)
 
+	// Set initial delay configuration in Redis
+	rdb.Set(ctx, configKeyToMars, strconv.FormatFloat(config.DelayToMars.Seconds(), 'f', -1, 64), 0)
+	rdb.Set(ctx, configKeyToEarth, strconv.FormatFloat(config.DelayToEarth.Seconds(), 'f', -1, 64), 0)
+
 	// Open raw sockets
 	earthConn, err := openRawSocket(config.EarthIface)
 	if err != nil {
@@ -104,49 +115,17 @@ func NewDelayDaemon(config Config) (*DelayDaemon, error) {
 	}
 
 	return &DelayDaemon{
-		config:    config,
-		rdb:       rdb,
-		earthConn: earthConn,
-		marsConn:  marsConn,
-		ctx:       ctx,
-		cancel:    cancel,
+		config:       config,
+		rdb:          rdb,
+		earthConn:    earthConn,
+		marsConn:     marsConn,
+		ctx:          ctx,
+		cancel:       cancel,
+		delayToMars:  config.DelayToMars,
+		delayToEarth: config.DelayToEarth,
 	}, nil
 }
 
-func openRawSocket(ifaceName string) (net.PacketConn, error) {
-	iface, err := net.InterfaceByName(ifaceName)
-	if err != nil {
-		return nil, fmt.Errorf("interface %s not found: %w", ifaceName, err)
-	}
-
-	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(syscall.ETH_P_ALL)))
-	if err != nil {
-		return nil, fmt.Errorf("socket creation failed: %w", err)
-	}
-
-	addr := syscall.SockaddrLinklayer{
-		Protocol: htons(syscall.ETH_P_ALL),
-		Ifindex:  iface.Index,
-	}
-
-	if err := syscall.Bind(fd, &addr); err != nil {
-		syscall.Close(fd)
-		return nil, fmt.Errorf("bind failed: %w", err)
-	}
-
-	file := os.NewFile(uintptr(fd), ifaceName)
-	conn, err := net.FilePacketConn(file)
-	file.Close() // FilePacketConn dups the fd
-	if err != nil {
-		return nil, fmt.Errorf("FilePacketConn failed: %w", err)
-	}
-
-	return conn, nil
-}
-
-func htons(i uint16) uint16 {
-	return (i<<8)&0xff00 | i>>8
-}
 
 func (d *DelayDaemon) Run() {
 	log.Printf("L2 Delay Daemon started")
@@ -155,9 +134,12 @@ func (d *DelayDaemon) Run() {
 	log.Printf("  Earth->Mars delay: %v", d.config.DelayToMars)
 	log.Printf("  Mars->Earth delay: %v", d.config.DelayToEarth)
 
+	// Start config reload goroutine
+	go d.configReloadLoop()
+
 	// Start receiver goroutines
-	go d.receiveLoop(d.earthConn, "earth", queueToMars, d.config.DelayToMars)
-	go d.receiveLoop(d.marsConn, "mars", queueToEarth, d.config.DelayToEarth)
+	go d.receiveLoop(d.earthConn, "earth", queueToMars, d.getDelayToMars)
+	go d.receiveLoop(d.marsConn, "mars", queueToEarth, d.getDelayToEarth)
 
 	// Start sender goroutines
 	go d.sendLoop(queueToMars, d.marsConn, "mars")
@@ -174,7 +156,55 @@ func (d *DelayDaemon) Stop() {
 	d.rdb.Close()
 }
 
-func (d *DelayDaemon) receiveLoop(conn net.PacketConn, sourceName, queueName string, delay time.Duration) {
+// ── Dynamic Configuration ─────────────────────────────────────────────────────
+
+func (d *DelayDaemon) getDelayToMars() time.Duration {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.delayToMars
+}
+
+func (d *DelayDaemon) getDelayToEarth() time.Duration {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.delayToEarth
+}
+
+func (d *DelayDaemon) configReloadLoop() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			d.reloadDelayConfig(configKeyToMars, &d.delayToMars, "delay_to_mars")
+			d.reloadDelayConfig(configKeyToEarth, &d.delayToEarth, "delay_to_earth")
+		}
+	}
+}
+
+func (d *DelayDaemon) reloadDelayConfig(redisKey string, current *time.Duration, label string) {
+	val, err := d.rdb.Get(d.ctx, redisKey).Result()
+	if err != nil {
+		return
+	}
+	secs, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		return
+	}
+	newDelay := time.Duration(secs * float64(time.Second))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if *current != newDelay {
+		log.Printf("[config] %s: %v -> %v", label, *current, newDelay)
+		*current = newDelay
+	}
+}
+
+// ── Packet Reception ──────────────────────────────────────────────────────────
+
+func (d *DelayDaemon) receiveLoop(conn net.PacketConn, sourceName, queueName string, getDelay func() time.Duration) {
 	buf := make([]byte, 65535)
 
 	for {
@@ -204,17 +234,12 @@ func (d *DelayDaemon) receiveLoop(conn net.PacketConn, sourceName, queueName str
 		frame := make([]byte, n)
 		copy(frame, buf[:n])
 
-		// Check if it's an outgoing packet (we sent it) - skip to avoid loops
-		// This is a simple heuristic; in production you'd track sent packets
-		if isOutgoing(frame, sourceName) {
-			continue
-		}
-
 		// Parse for logging
 		vlanID := parseVLAN(frame)
 		frameInfo := describeFrame(frame)
 
-		// Calculate send time
+		// Calculate send time using current delay
+		delay := getDelay()
 		sendTime := time.Now().Add(delay)
 		sendTimeStr := strconv.FormatInt(sendTime.UnixNano(), 10)
 
@@ -285,11 +310,6 @@ func (d *DelayDaemon) sendLoop(queueName string, conn net.PacketConn, destName s
 	}
 }
 
-// rawAddr implements net.Addr for raw socket writes
-type rawAddr struct{}
-
-func (r *rawAddr) Network() string { return "raw" }
-func (r *rawAddr) String() string  { return "raw" }
 
 func parseVLAN(frame []byte) uint16 {
 	if len(frame) < 18 {
@@ -304,14 +324,11 @@ func parseVLAN(frame []byte) uint16 {
 
 func describeFrame(frame []byte) string {
 	packet := gopacket.NewPacket(frame, layers.LayerTypeEthernet, gopacket.Default)
-
 	var parts []string
-
 	if ethLayer := packet.Layer(layers.LayerTypeEthernet); ethLayer != nil {
 		eth := ethLayer.(*layers.Ethernet)
 		parts = append(parts, fmt.Sprintf("%s->%s", eth.SrcMAC, eth.DstMAC))
 	}
-
 	if arpLayer := packet.Layer(layers.LayerTypeARP); arpLayer != nil {
 		arp := arpLayer.(*layers.ARP)
 		if arp.Operation == 1 {
@@ -319,50 +336,26 @@ func describeFrame(frame []byte) string {
 		} else {
 			parts = append(parts, fmt.Sprintf("ARP-REPLY %v is-at %v", net.IP(arp.SourceProtAddress), net.HardwareAddr(arp.SourceHwAddress)))
 		}
-		return joinParts(parts)
+		return strings.Join(parts, " | ")
 	}
-
 	if ipLayer := packet.Layer(layers.LayerTypeIPv4); ipLayer != nil {
 		ip := ipLayer.(*layers.IPv4)
 		parts = append(parts, fmt.Sprintf("IP %s->%s", ip.SrcIP, ip.DstIP))
 	}
-
 	if icmpLayer := packet.Layer(layers.LayerTypeICMPv4); icmpLayer != nil {
 		icmp := icmpLayer.(*layers.ICMPv4)
 		parts = append(parts, fmt.Sprintf("ICMP type=%d", icmp.TypeCode.Type()))
 	}
-
 	if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
 		tcp := tcpLayer.(*layers.TCP)
 		parts = append(parts, fmt.Sprintf("TCP %d->%d", tcp.SrcPort, tcp.DstPort))
 	}
-
 	if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
 		udp := udpLayer.(*layers.UDP)
 		parts = append(parts, fmt.Sprintf("UDP %d->%d", udp.SrcPort, udp.DstPort))
 	}
-
 	if len(parts) == 0 {
 		return "unknown"
 	}
-	return joinParts(parts)
-}
-
-func joinParts(parts []string) string {
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += " | "
-		}
-		result += p
-	}
-	return result
-}
-
-func isOutgoing(frame []byte, sourceName string) bool {
-	// Simple heuristic: we can't easily detect outgoing packets without
-	// tracking what we've sent. For now, we rely on the fact that
-	// veth pairs don't loop back packets we send.
-	// In production, you might want to use BPF filters or track sent packets.
-	return false
+	return strings.Join(parts, " | ")
 }
