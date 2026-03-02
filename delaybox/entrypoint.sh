@@ -10,7 +10,7 @@ cleanup() {
     ip link del veth-mars 2>/dev/null || true
     ip link del veth-earth-moon 2>/dev/null || true
     ip link del veth-moon 2>/dev/null || true
-    ip link del veth-earth-custom 2>/dev/null || true
+    ip link del veth-ecustom 2>/dev/null || true
     ip link del veth-custom 2>/dev/null || true
     rm -f /tmp/delaybox_ready
 }
@@ -76,7 +76,7 @@ ip link del veth-earth 2>/dev/null || true
 ip link del veth-mars 2>/dev/null || true
 ip link del veth-earth-moon 2>/dev/null || true
 ip link del veth-moon 2>/dev/null || true
-ip link del veth-earth-custom 2>/dev/null || true
+ip link del veth-ecustom 2>/dev/null || true
 ip link del veth-custom 2>/dev/null || true
 
 # ── Earth ↔ Mars link ────────────────────────────────────────────────────────
@@ -139,14 +139,14 @@ CUSTOM_FLAGS=""
 if [ "$CUSTOM_ENABLED" = true ]; then
     echo "Creating Earth↔Custom veth pair..."
 
-    ip link add veth-earth-custom type veth peer name eth2-earth
+    ip link add veth-ecustom type veth peer name eth2-earth
     ip link add veth-custom type veth peer name eth0-custom
 
     ip link set eth2-earth netns $EARTH_PID
     ip link set eth0-custom netns $CUSTOM_PID
 
-    ip link set veth-earth-custom up
-    ip link set veth-earth-custom promisc on
+    ip link set veth-ecustom up
+    ip link set veth-ecustom promisc on
     ip link set veth-custom up
     ip link set veth-custom promisc on
 
@@ -162,7 +162,7 @@ if [ "$CUSTOM_ENABLED" = true ]; then
 
     docker exec custom touch /tmp/net_ready 2>/dev/null || true
 
-    CUSTOM_FLAGS="-custom-src-iface veth-earth-custom -custom-iface veth-custom -delay-to-custom ${DELAY_EARTH_TO_CUSTOM:-5} -delay-from-custom ${DELAY_CUSTOM_TO_EARTH:-5}"
+    CUSTOM_FLAGS="-custom-src-iface veth-ecustom -custom-iface veth-custom -delay-to-custom ${DELAY_EARTH_TO_CUSTOM:-5} -delay-from-custom ${DELAY_CUSTOM_TO_EARTH:-5}"
 fi
 
 # Signal that network is ready
