@@ -170,21 +170,6 @@ docker compose down -v && docker compose up -d --build
     └── mars_sol0.jpeg       # テスト画像
 ```
 
-## ION-DTN統合
-
-Earth/Marsコンテナに ION-DTN をインストールして使用:
-
-```bash
-docker exec -it earth sh
-# ION の設定ファイルを配置して ionstart
-
-docker exec -it mars sh
-# ION の設定ファイルを配置して ionstart
-```
-
-LTP の OWLT 設定に注意:
-- `ltprc` の `ownQtime` / `remoteQtime` を遅延時間に合わせて設定
-
 ## トラブルシューティング
 
 | 症状 | 確認方法 |
