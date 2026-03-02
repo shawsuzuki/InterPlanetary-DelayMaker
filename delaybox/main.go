@@ -232,11 +232,17 @@ func receiveLoop(ctx context.Context, rdb *redis.Client, handle *pcap.Handle, l 
 
 			vlanID := parseVLAN(frame)
 			info := describeFrame(frame)
+			pktType := classifyFrameType(frame)
 			vlanStr := ""
 			if vlanID > 0 {
 				vlanStr = fmt.Sprintf(" VLAN=%d", vlanID)
 			}
 			log.Printf("[%s] Queued %d bytes%s delay=%v | %s", l.name, len(frame), vlanStr, delay, info)
+
+			// Packet log for dashboard (capped at 200 per direction)
+			logEntry := fmt.Sprintf("%d|%d|%s|%s", time.Now().UnixMilli(), len(frame), pktType, info)
+			rdb.LPush(ctx, "pktlog:"+l.name, logEntry)
+			rdb.LTrim(ctx, "pktlog:"+l.name, 0, 199)
 		}
 	}
 }
@@ -297,6 +303,35 @@ func parseVLAN(frame []byte) uint16 {
 		return uint16(frame[14]&0x0F)<<8 | uint16(frame[15])
 	}
 	return 0
+}
+
+func classifyFrameType(frame []byte) string {
+	if len(frame) < 14 {
+		return "other"
+	}
+	et := uint16(frame[12])<<8 | uint16(frame[13])
+	if et == 0x8100 && len(frame) >= 18 {
+		et = uint16(frame[16])<<8 | uint16(frame[17])
+	}
+	switch et {
+	case 0x0806:
+		return "arp"
+	case 0x86DD:
+		return "ipv6"
+	case 0x0800:
+		if len(frame) >= 24 {
+			switch frame[23] {
+			case 1:
+				return "icmp"
+			case 6:
+				return "tcp"
+			case 17:
+				return "udp"
+			}
+		}
+		return "ip"
+	}
+	return "other"
 }
 
 func describeFrame(frame []byte) string {

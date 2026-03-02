@@ -71,7 +71,7 @@
     font-size: 0.6em; color: #5a7a9a; background: #141b2a; padding: 0 6px; white-space: nowrap;
   }
 
-  /* Packet dots: positioned by JS each poll (no transition to avoid backwards glitch) */
+  /* Packet dots: color by protocol type */
   .pkt {
     position: absolute;
     width: 6px; height: 6px;
@@ -79,10 +79,16 @@
     top: 2px;
     opacity: 0.9;
   }
-  .pkt.fwd { background: #4a9eff; box-shadow: 0 0 4px #4a9eff80; }
-  .pkt.rev-mars { background: #ff6a4a; box-shadow: 0 0 4px #ff6a4a80; }
-  .pkt.rev-moon { background: #c8c8aa; box-shadow: 0 0 4px #c8c8aa80; }
-  .pkt.rev-custom { background: #4adf8a; box-shadow: 0 0 4px #4adf8a80; }
+  .pkt.t-icmp { background: #4a9eff; box-shadow: 0 0 4px #4a9eff80; }
+  .pkt.t-arp { background: #ffcc00; box-shadow: 0 0 4px #ffcc0080; }
+  .pkt.t-ipv6 { background: #666; box-shadow: 0 0 4px #66666680; }
+  .pkt.t-tcp { background: #ff6a4a; box-shadow: 0 0 4px #ff6a4a80; }
+  .pkt.t-udp { background: #4adf8a; box-shadow: 0 0 4px #4adf8a80; }
+  .pkt.t-other { background: #888; box-shadow: 0 0 3px #88888880; }
+  /* Dot legend */
+  .dot-legend { display: flex; gap: 10px; padding: 4px 0 0; justify-content: center; }
+  .dot-legend span { font-size: 0.55em; color: #5a7a9a; display: flex; align-items: center; gap: 3px; }
+  .dot-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; }
 
   /* ── Log Viewer ──────────────────────────────────── */
   .log-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -208,6 +214,13 @@
         </div>
       </div>
     </div>
+    <div class="dot-legend">
+      <span><i style="background:#ffcc00"></i>ARP</span>
+      <span><i style="background:#4a9eff"></i>ICMP</span>
+      <span><i style="background:#ff6a4a"></i>TCP</span>
+      <span><i style="background:#4adf8a"></i>UDP</span>
+      <span><i style="background:#666"></i>IPv6</span>
+    </div>
   </div>
 
   <!-- Mars Cards -->
@@ -252,6 +265,19 @@
   </div>
   <div class="log-box" id="log-box"></div>
 
+  <!-- Packet Capture Log -->
+  <div class="log-header" style="margin-top:16px;">
+    <span class="section-label" style="margin-bottom:0">Packet Capture</span>
+    <button class="log-filter active" data-pkt="all" onclick="setPktFilter('all',this)">All</button>
+    <button class="log-filter" data-pkt="to_mars" onclick="setPktFilter('to_mars',this)">→Mars</button>
+    <button class="log-filter" data-pkt="to_earth" onclick="setPktFilter('to_earth',this)">→Earth(M)</button>
+    <button class="log-filter" data-pkt="to_moon" onclick="setPktFilter('to_moon',this)">→Moon</button>
+    <button class="log-filter" data-pkt="from_moon" onclick="setPktFilter('from_moon',this)">→Earth(Mn)</button>
+    <button class="log-filter" data-pkt="to_custom" onclick="setPktFilter('to_custom',this)">→Custom</button>
+    <button class="log-filter" data-pkt="from_custom" onclick="setPktFilter('from_custom',this)">→Earth(C)</button>
+  </div>
+  <div class="log-box" id="pkt-log-box" style="height:180px;font-size:0.65em;"></div>
+
 </div>
 </div>
 
@@ -291,12 +317,21 @@
           <option value="from_custom">Custom (Custom &rarr; Earth)</option>
         </select>
       </div>
+      <div class="input-group"><label>Mode</label>
+        <select id="ramp-mode">
+          <option value="amount">Amount (s/sec)</option>
+          <option value="rate">Rate (%/sec)</option>
+        </select>
+      </div>
+      <div class="input-group"><label>From (s)</label><input type="number" id="ramp-from" min="0" step="1" placeholder="start delay"></div>
+      <div class="input-group"><label>To (s)</label><input type="number" id="ramp-to" min="0" step="1" placeholder="end delay"></div>
+      <div class="input-group"><label>Delta per second</label><input type="number" id="ramp-step" step="0.1" placeholder="e.g. -50 or -10%"></div>
       <div class="input-group"><label>Interval (s)</label><input type="number" id="ramp-interval" value="1" min="0.1" step="0.1"></div>
-      <div class="input-group"><label>From (s)</label><input type="number" id="ramp-from" min="0" step="1" placeholder="start"></div>
-      <div class="input-group"><label>To (s)</label><input type="number" id="ramp-to" min="0" step="1" placeholder="end"></div>
-      <div class="input-group"><label>Delta per tick (s)</label><input type="number" id="ramp-step" step="0.1" placeholder="0 = ±1 auto, negative to decrease"></div>
     </div>
-    <button class="btn btn-primary mt-12" onclick="startRamp()">Start</button>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="btn btn-primary" onclick="startRamp()">Start</button>
+      <button class="btn btn-danger" onclick="clearAllRamps()">Clear All</button>
+    </div>
     <div class="ramp-badges" id="ramp-badges"></div>
   </div>
   <div class="setting-block">
@@ -369,21 +404,20 @@ function initLane(id) {
 ['mars-fwd','mars-rev','moon-fwd','moon-rev','custom-fwd','custom-rev'].forEach(initLane);
 
 // Update a lane with real packet positions from API
-// positions: array of progress values 0.0 (just sent) to 1.0 (arriving)
+// positions: array of {p: progress 0.0→1.0, t: type string}
 // dir: 'fwd' (left→right) or 'rev' (right→left)
-// colorClass: CSS class for color
-function updateLane(laneId, positions, dir, colorClass) {
+function updateLane(laneId, positions, dir) {
   const lane = document.getElementById(laneId);
   if (!lane) return;
   const dots = lane.querySelectorAll('.pkt');
   dots.forEach((dot, i) => {
     if (i < positions.length) {
-      const p = positions[i];
+      const pkt = positions[i];
       // fwd: progress 0 at left, 1 at right
       // rev: progress 0 at right, 1 at left
-      const leftPct = dir === 'fwd' ? (p * 100) : ((1 - p) * 100);
+      const leftPct = dir === 'fwd' ? (pkt.p * 100) : ((1 - pkt.p) * 100);
       dot.style.display = '';
-      dot.className = 'pkt ' + colorClass;
+      dot.className = 'pkt t-' + pkt.t;
       dot.style.left = leftPct + '%';
     } else {
       dot.style.display = 'none';
@@ -391,9 +425,9 @@ function updateLane(laneId, positions, dir, colorClass) {
   });
 }
 
-function updateVis(prefix, dFwd, dRev, pktsFwd, pktsRev, revColor) {
-  updateLane(prefix+'-fwd', pktsFwd || [], 'fwd', 'fwd');
-  updateLane(prefix+'-rev', pktsRev || [], 'rev', revColor);
+function updateVis(prefix, dFwd, dRev, pktsFwd, pktsRev) {
+  updateLane(prefix+'-fwd', pktsFwd || [], 'fwd');
+  updateLane(prefix+'-rev', pktsRev || [], 'rev');
   const label = document.getElementById(prefix+'-vis-delay');
   if (label) {
     const avg = (dFwd + dRev) / 2;
@@ -477,15 +511,19 @@ async function applyCustomDelay() {
 
 // ── Ramp ───────────────────────────────────────────
 async function startRamp() {
+  const mode = document.getElementById('ramp-mode').value;
   const body = {
     link: document.getElementById('ramp-link').value,
+    mode: mode,
     from: parseFloat(document.getElementById('ramp-from').value)||0,
     to: parseFloat(document.getElementById('ramp-to').value)||0,
     step: parseFloat(document.getElementById('ramp-step').value)||0,
     interval: parseFloat(document.getElementById('ramp-interval').value)||1,
   };
-  await fetch('/api/ramp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  addLog('Dynamic delay started: '+body.link+' '+body.from+'→'+body.to, 'ls', 'settings');
+  const res = await fetch('/api/ramp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if (!res.ok) { const t = await res.text(); addLog('Dynamic delay error: '+t, 'ls', 'settings'); return; }
+  const unit = mode==='rate' ? '%' : 's';
+  addLog('Dynamic delay started: '+body.link+' '+body.from+'→'+body.to+' ('+body.step+unit+'/sec)', 'ls', 'settings');
   fetchRamps();
 }
 async function stopRamp(link) {
@@ -516,6 +554,66 @@ async function flushQueues() {
   addLog('All queues flushed', 'ls', 'settings');
   fetchStatus();
 }
+
+// ── Clear All Ramps ────────────────────────────────
+async function clearAllRamps() {
+  await fetch('/api/ramp?link=all',{method:'DELETE'});
+  addLog('All dynamic delays cleared', 'ls', 'settings');
+  fetchRamps();
+}
+
+// ── Packet Capture Log ─────────────────────────────
+let pktFilter = 'all';
+let pktLogData = {};
+
+function setPktFilter(dir, btn) {
+  pktFilter = dir;
+  document.querySelectorAll('[data-pkt]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderPktLog();
+}
+
+async function fetchPktLog() {
+  try {
+    const res = await fetch('/api/pktlog');
+    pktLogData = await res.json();
+    renderPktLog();
+  } catch(e) {}
+}
+
+function renderPktLog() {
+  const box = document.getElementById('pkt-log-box');
+  if (!box) return;
+  let entries = [];
+  const dirs = pktFilter === 'all'
+    ? ['to_mars','to_earth','to_moon','from_moon','to_custom','from_custom']
+    : [pktFilter];
+  const dirLabels = {
+    to_mars:'→Mars', to_earth:'→Earth(M)',
+    to_moon:'→Moon', from_moon:'→Earth(Mn)',
+    to_custom:'→Custom', from_custom:'→Earth(C)'
+  };
+  const typeColors = {arp:'#ffcc00',icmp:'#4a9eff',tcp:'#ff6a4a',udp:'#4adf8a',ipv6:'#666',ip:'#888',other:'#888'};
+  dirs.forEach(dir => {
+    const logs = pktLogData[dir] || [];
+    logs.forEach(e => {
+      entries.push({ts: e.ts, dir: dir, size: e.size, type: e.type, desc: e.desc});
+    });
+  });
+  entries.sort((a,b) => b.ts - a.ts);
+  entries = entries.slice(0, 100);
+  box.innerHTML = entries.map(e => {
+    const t = new Date(e.ts).toLocaleTimeString('en-GB',{hour12:false})+'.'+String(e.ts%1000).padStart(3,'0');
+    const tc = typeColors[e.type]||'#888';
+    return '<div><span class="lt">'+t+'</span> <span style="color:#5a7a9a">['+dirLabels[e.dir]+']</span> '+
+      '<span style="color:'+tc+'">'+e.type.toUpperCase()+'</span> '+
+      '<span style="color:#5a6a7a">'+e.size+'B</span> '+
+      '<span style="color:#7a8a7a">'+escHtml(e.desc)+'</span></div>';
+  }).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+function escHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
 // ── Commands ───────────────────────────────────────
 const TARGETS = {
@@ -561,7 +659,7 @@ async function fetchStatus() {
     document.getElementById('delay-earth').innerHTML = fmtD(d.delay_to_earth);
     document.getElementById('queue-mars').innerHTML = d.queue_to_mars+'<span class="card-unit"> pkts</span>';
     document.getElementById('queue-earth').innerHTML = d.queue_to_earth+'<span class="card-unit"> pkts</span>';
-    updateVis('mars', d.delay_to_mars, d.delay_to_earth, d.pkts_to_mars, d.pkts_to_earth, 'rev-mars');
+    updateVis('mars', d.delay_to_mars, d.delay_to_earth, d.pkts_to_mars, d.pkts_to_earth);
     updateMarsToggle(d.delay_to_mars);
 
     // Moon
@@ -574,7 +672,7 @@ async function fetchStatus() {
       document.getElementById('delay-from-moon').innerHTML = fmtD(d.delay_from_moon);
       document.getElementById('queue-moon').innerHTML = d.queue_to_moon+'<span class="card-unit"> pkts</span>';
       document.getElementById('queue-from-moon').innerHTML = d.queue_from_moon+'<span class="card-unit"> pkts</span>';
-      updateVis('moon', d.delay_to_moon, d.delay_from_moon, d.pkts_to_moon, d.pkts_from_moon, 'rev-moon');
+      updateVis('moon', d.delay_to_moon, d.delay_from_moon, d.pkts_to_moon, d.pkts_from_moon);
       document.getElementById('moon-val').textContent = d.delay_to_moon.toFixed(2)+'s';
     }
 
@@ -588,7 +686,7 @@ async function fetchStatus() {
       document.getElementById('delay-from-custom').innerHTML = fmtD(d.delay_from_custom);
       document.getElementById('queue-custom').innerHTML = d.queue_to_custom+'<span class="card-unit"> pkts</span>';
       document.getElementById('queue-from-custom').innerHTML = d.queue_from_custom+'<span class="card-unit"> pkts</span>';
-      updateVis('custom', d.delay_to_custom, d.delay_from_custom, d.pkts_to_custom, d.pkts_from_custom, 'rev-custom');
+      updateVis('custom', d.delay_to_custom, d.delay_from_custom, d.pkts_to_custom, d.pkts_from_custom);
     }
     renderCommands();
     document.getElementById('status-dot').className='status-dot';
@@ -600,9 +698,10 @@ async function fetchStatus() {
 }
 
 // ── Init ───────────────────────────────────────────
-renderCommands(); fetchStatus(); fetchRamps();
+renderCommands(); fetchStatus(); fetchRamps(); fetchPktLog();
 setInterval(fetchStatus, 1000);
 setInterval(fetchRamps, 2000);
+setInterval(fetchPktLog, 2000);
 </script>
 </body>
 </html>

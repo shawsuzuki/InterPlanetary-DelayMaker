@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"math"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,13 +64,18 @@ type Status struct {
 	QueueFromCustom int64   `json:"queue_from_custom"`
 	MoonEnabled     bool    `json:"moon_enabled"`
 	CustomEnabled   bool    `json:"custom_enabled"`
-	// Packet positions: progress values 0.0 (just sent) to 1.0 (arriving)
-	PktsToMars     []float64 `json:"pkts_to_mars"`
-	PktsToEarth    []float64 `json:"pkts_to_earth"`
-	PktsToMoon     []float64 `json:"pkts_to_moon"`
-	PktsFromMoon   []float64 `json:"pkts_from_moon"`
-	PktsToCustom   []float64 `json:"pkts_to_custom"`
-	PktsFromCustom []float64 `json:"pkts_from_custom"`
+	// Packet positions: progress + type for visualization dots
+	PktsToMars     []PacketDot `json:"pkts_to_mars"`
+	PktsToEarth    []PacketDot `json:"pkts_to_earth"`
+	PktsToMoon     []PacketDot `json:"pkts_to_moon"`
+	PktsFromMoon   []PacketDot `json:"pkts_from_moon"`
+	PktsToCustom   []PacketDot `json:"pkts_to_custom"`
+	PktsFromCustom []PacketDot `json:"pkts_from_custom"`
+}
+
+type PacketDot struct {
+	Progress float64 `json:"p"`
+	Type     string  `json:"t"` // "arp","icmp","ipv6","tcp","udp","other"
 }
 
 type DelayRequest struct {
@@ -94,8 +101,9 @@ type RampRequest struct {
 	Link     string  `json:"link"`     // "to_mars", "to_earth", "to_custom", "from_custom"
 	From     float64 `json:"from"`     // start value (seconds)
 	To       float64 `json:"to"`       // end value (seconds)
-	Step     float64 `json:"step"`     // delta per tick (can be negative)
+	Step     float64 `json:"step"`     // delta per second (amount mode: seconds, rate mode: percent)
 	Interval float64 `json:"interval"` // seconds between ticks
+	Mode     string  `json:"mode"`     // "amount" (default) or "rate" (percentage)
 }
 
 type RampInfo struct {
@@ -285,6 +293,37 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "deleted": deleted})
 	})
 
+	// ── GET /api/pktlog — Recent packet captures per direction ─────────
+	http.HandleFunc("/api/pktlog", func(w http.ResponseWriter, r *http.Request) {
+		type LogEntry struct {
+			Ts   int64  `json:"ts"`
+			Size int    `json:"size"`
+			Type string `json:"type"`
+			Desc string `json:"desc"`
+		}
+		linkNames := map[string]string{
+			"to_mars": "earth→mars", "to_earth": "mars→earth",
+			"to_moon": "earth→moon", "from_moon": "moon→earth",
+			"to_custom": "earth→custom", "from_custom": "custom→earth",
+		}
+		result := map[string][]LogEntry{}
+		for key, name := range linkNames {
+			entries, _ := rdb.LRange(ctx, "pktlog:"+name, 0, 49).Result()
+			parsed := make([]LogEntry, 0, len(entries))
+			for _, e := range entries {
+				parts := strings.SplitN(e, "|", 4)
+				if len(parts) == 4 {
+					ts, _ := strconv.ParseInt(parts[0], 10, 64)
+					size, _ := strconv.Atoi(parts[1])
+					parsed = append(parsed, LogEntry{Ts: ts, Size: size, Type: parts[2], Desc: parts[3]})
+				}
+			}
+			result[key] = parsed
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	})
+
 	log.Println("Dashboard running on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
@@ -295,34 +334,72 @@ func setDelay(rdb *redis.Client, ctx context.Context, key string, secs float64) 
 	rdb.Set(ctx, key, strconv.FormatFloat(secs, 'f', -1, 64), 0)
 }
 
-// packetPositions returns progress (0.0→1.0) for up to 30 in-flight packets.
-// Each packet's score is the scheduled send_time in nanoseconds.
-// progress = 1 - (send_time - now) / delay
-// Packets with remaining <= 0 are stale (already transmitted) and skipped.
-func packetPositions(ctx context.Context, rdb *redis.Client, queueKey string, delaySec float64, nowNs float64) []float64 {
+// packetPositions returns progress (0.0→1.0) + packet type for up to 30 in-flight packets.
+// Member format: "nanosecond_timestamp:hex_encoded_frame"
+func packetPositions(ctx context.Context, rdb *redis.Client, queueKey string, delaySec float64, nowNs float64) []PacketDot {
 	if delaySec < 0.001 {
-		return []float64{}
+		return []PacketDot{}
 	}
 	results, err := rdb.ZRangeWithScores(ctx, queueKey, 0, 29).Result()
 	if err != nil || len(results) == 0 {
-		return []float64{}
+		return []PacketDot{}
 	}
 	delayNs := delaySec * 1e9
-	positions := make([]float64, 0, len(results))
+	dots := make([]PacketDot, 0, len(results))
 	for _, z := range results {
 		remaining := z.Score - nowNs
 		if remaining <= 0 {
-			continue // already transmitted — stale entry awaiting cleanup
+			continue // already transmitted
 		}
 		progress := 1.0 - (remaining / delayNs)
 		if progress < 0 {
 			progress = 0
 		}
-		// Round to 3 decimals to reduce JSON size
 		progress = math.Round(progress*1000) / 1000
-		positions = append(positions, progress)
+		pktType := classifyMember(z.Member)
+		dots = append(dots, PacketDot{Progress: progress, Type: pktType})
 	}
-	return positions
+	return dots
+}
+
+// classifyMember parses the hex-encoded Ethernet frame from a Redis member
+// and returns the packet type: "arp","icmp","ipv6","tcp","udp","other"
+func classifyMember(member interface{}) string {
+	s, ok := member.(string)
+	if !ok {
+		return "other"
+	}
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		return "other"
+	}
+	frame, err := hex.DecodeString(parts[1])
+	if err != nil || len(frame) < 14 {
+		return "other"
+	}
+	et := uint16(frame[12])<<8 | uint16(frame[13])
+	if et == 0x8100 && len(frame) >= 18 {
+		et = uint16(frame[16])<<8 | uint16(frame[17])
+	}
+	switch et {
+	case 0x0806:
+		return "arp"
+	case 0x86DD:
+		return "ipv6"
+	case 0x0800:
+		if len(frame) >= 24 {
+			switch frame[23] {
+			case 1:
+				return "icmp"
+			case 6:
+				return "tcp"
+			case 17:
+				return "udp"
+			}
+		}
+		return "ip"
+	}
+	return "other"
 }
 
 // ── Ramp Handlers ───────────────────────────────────────────────────────────
@@ -343,12 +420,11 @@ func handleRampStart(w http.ResponseWriter, r *http.Request, rdb *redis.Client, 
 		req.Interval = 1
 	}
 	if req.Step == 0 {
-		// Auto-calculate step direction
-		if req.To > req.From {
-			req.Step = 1
-		} else {
-			req.Step = -1
-		}
+		http.Error(w, "delta must be non-zero", http.StatusBadRequest)
+		return
+	}
+	if req.Mode == "" {
+		req.Mode = "amount"
 	}
 
 	// Cancel existing ramp on this link
@@ -367,7 +443,8 @@ func handleRampStart(w http.ResponseWriter, r *http.Request, rdb *redis.Client, 
 
 	// Set initial value
 	setDelay(rdb, bgCtx, redisKey, req.From)
-	log.Printf("[ramp] Started %s: %.1f → %.1f (step=%.1f, interval=%.1fs)", req.Link, req.From, req.To, req.Step, req.Interval)
+	log.Printf("[dynamic] Started %s: %.1f → %.1f (delta=%.2f, mode=%s, interval=%.1fs)",
+		req.Link, req.From, req.To, req.Step, req.Mode, req.Interval)
 
 	go func() {
 		ticker := time.NewTicker(time.Duration(req.Interval * float64(time.Second)))
@@ -378,10 +455,14 @@ func handleRampStart(w http.ResponseWriter, r *http.Request, rdb *redis.Client, 
 		for {
 			select {
 			case <-ctx.Done():
-				log.Printf("[ramp] Stopped %s at %.1f", req.Link, current)
+				log.Printf("[dynamic] Stopped %s at %.1f", req.Link, current)
 				return
 			case <-ticker.C:
-				current += req.Step
+				if req.Mode == "rate" {
+					current = current * (1 + req.Step/100)
+				} else {
+					current += req.Step
+				}
 				// Check if we've passed the target
 				if (req.Step > 0 && current >= req.To) || (req.Step < 0 && current <= req.To) {
 					current = req.To
@@ -389,7 +470,7 @@ func handleRampStart(w http.ResponseWriter, r *http.Request, rdb *redis.Client, 
 					state.mu.Lock()
 					state.current = current
 					state.mu.Unlock()
-					log.Printf("[ramp] Completed %s: reached %.1f", req.Link, current)
+					log.Printf("[dynamic] Completed %s: reached %.1f", req.Link, current)
 					return
 				}
 				// Round to avoid floating point drift
@@ -412,9 +493,22 @@ func handleRampStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "link parameter required", http.StatusBadRequest)
 		return
 	}
+	if link == "all" {
+		count := 0
+		activeRamps.Range(func(key, value any) bool {
+			value.(*rampState).cancel()
+			activeRamps.Delete(key)
+			count++
+			return true
+		})
+		log.Printf("[dynamic] Cleared all (%d stopped)", count)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "stopped": count})
+		return
+	}
 	if old, ok := activeRamps.LoadAndDelete(link); ok {
 		old.(*rampState).cancel()
-		log.Printf("[ramp] Cancelled %s", link)
+		log.Printf("[dynamic] Cancelled %s", link)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	} else {
