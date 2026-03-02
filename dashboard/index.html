@@ -61,15 +61,19 @@
   .c-custom .vis-node-dot { background: #1a2a1a; border-color: #4adf8a; }
   .c-custom .vis-node-label { color: #4adf8a; }
 
-  .vis-track { flex: 1; height: 44px; position: relative; margin: 0 10px; }
-  .vis-track-line { position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: #2a3a4a; }
+  .vis-track { flex: 1; height: 54px; position: relative; margin: 0 10px; }
+  .vis-track-line { position: absolute; left: 0; right: 0; height: 1px; background: #2a3a4a; }
+  .vis-track-line.fwd-line { top: 14px; }
+  .vis-track-line.rev-line { top: 40px; }
   .vis-lane { position: absolute; left: 0; right: 0; height: 10px; overflow: hidden; }
-  .vis-lane.fwd { top: 6px; }
-  .vis-lane.rev { bottom: 6px; }
+  .vis-lane.fwd { top: 9px; }
+  .vis-lane.rev { top: 35px; }
   .vis-delay-label {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    font-size: 0.6em; color: #5a7a9a; background: #141b2a; padding: 0 6px; white-space: nowrap;
+    position: absolute; left: 50%; transform: translate(-50%, -50%);
+    font-size: 0.55em; color: #5a7a9a; background: #141b2a; padding: 0 5px; white-space: nowrap;
   }
+  .vis-delay-label.fwd-label { top: 14px; }
+  .vis-delay-label.rev-label { top: 40px; }
 
   /* Packet dots: color by protocol type */
   .pkt {
@@ -188,28 +192,34 @@
       <div class="vis-spokes">
         <div class="vis-spoke" id="vis-mars-link">
           <div class="vis-track">
-            <div class="vis-track-line"></div>
+            <div class="vis-track-line fwd-line"></div>
+            <div class="vis-track-line rev-line"></div>
             <div class="vis-lane fwd" id="mars-fwd"></div>
             <div class="vis-lane rev" id="mars-rev"></div>
-            <div class="vis-delay-label" id="mars-vis-delay">--</div>
+            <div class="vis-delay-label fwd-label" id="mars-fwd-delay">--</div>
+            <div class="vis-delay-label rev-label" id="mars-rev-delay">--</div>
           </div>
           <div class="vis-node c-mars"><div class="vis-node-dot"></div><div class="vis-node-label">MARS</div><div class="vis-node-ip">10.0.0.3</div></div>
         </div>
         <div class="vis-spoke hidden-section" id="vis-moon-link">
           <div class="vis-track">
-            <div class="vis-track-line"></div>
+            <div class="vis-track-line fwd-line"></div>
+            <div class="vis-track-line rev-line"></div>
             <div class="vis-lane fwd" id="moon-fwd"></div>
             <div class="vis-lane rev" id="moon-rev"></div>
-            <div class="vis-delay-label" id="moon-vis-delay">--</div>
+            <div class="vis-delay-label fwd-label" id="moon-fwd-delay">--</div>
+            <div class="vis-delay-label rev-label" id="moon-rev-delay">--</div>
           </div>
           <div class="vis-node c-moon"><div class="vis-node-dot"></div><div class="vis-node-label">MOON</div><div class="vis-node-ip">10.1.0.3</div></div>
         </div>
         <div class="vis-spoke hidden-section" id="vis-custom-link">
           <div class="vis-track">
-            <div class="vis-track-line"></div>
+            <div class="vis-track-line fwd-line"></div>
+            <div class="vis-track-line rev-line"></div>
             <div class="vis-lane fwd" id="custom-fwd"></div>
             <div class="vis-lane rev" id="custom-rev"></div>
-            <div class="vis-delay-label" id="custom-vis-delay">--</div>
+            <div class="vis-delay-label fwd-label" id="custom-fwd-delay">--</div>
+            <div class="vis-delay-label rev-label" id="custom-rev-delay">--</div>
           </div>
           <div class="vis-node c-custom"><div class="vis-node-dot"></div><div class="vis-node-label">CUSTOM</div><div class="vis-node-ip">10.2.0.3</div></div>
         </div>
@@ -219,7 +229,7 @@
       <span><i style="background:#ffcc00"></i>ARP</span>
       <span><i style="background:#ffa500"></i>otherARP</span>
       <span><i style="background:#4a9eff"></i>ICMP</span>
-      <span><i style="background:#4a9eff;clip-path:polygon(50% 0%,0% 100%,100% 100%);border-radius:0;width:8px;height:8px"></i>ICMPv6</span>
+      <span><i style="background:#4a9eff;clip-path:polygon(50% 0%,0% 100%,100% 100%);border-radius:0;width:8px;height:8px"></i>ICMPv6 (non-mgmt)</span>
       <span><i style="background:#ff6a4a"></i>TCP</span>
       <span><i style="background:#4adf8a"></i>UDP</span>
       <span><i style="background:#888"></i>Other</span>
@@ -434,11 +444,10 @@ function updateLane(laneId, positions, dir) {
 function updateVis(prefix, dFwd, dRev, pktsFwd, pktsRev) {
   updateLane(prefix+'-fwd', pktsFwd || [], 'fwd');
   updateLane(prefix+'-rev', pktsRev || [], 'rev');
-  const label = document.getElementById(prefix+'-vis-delay');
-  if (label) {
-    const avg = (dFwd + dRev) / 2;
-    label.textContent = avg < 0.1 ? 'disabled' : fmtD(avg) + ' one-way';
-  }
+  const fwdLabel = document.getElementById(prefix+'-fwd-delay');
+  const revLabel = document.getElementById(prefix+'-rev-delay');
+  if (fwdLabel) fwdLabel.textContent = dFwd < 0.1 ? '→ disabled' : fmtD(dFwd) + ' →';
+  if (revLabel) revLabel.textContent = dRev < 0.1 ? '← disabled' : '← ' + fmtD(dRev);
 }
 
 // ── Log Viewer ─────────────────────────────────────
