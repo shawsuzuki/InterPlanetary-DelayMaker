@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/google/gopacket/pcap"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -65,34 +66,43 @@ func main() {
 	earthHandle := openHandle(*earthIface)
 	marsHandle := openHandle(*marsIface)
 
-	marsConn, err := openRawSocket(config.MarsIface)
-	if err != nil {
-		earthConn.Close()
-		cancel()
-		return nil, fmt.Errorf("failed to open mars socket: %w", err)
-	}
+	go receiveLoop(ctx, rdb, earthHandle, toMars)
+	go sendLoop(ctx, rdb, marsHandle, toMars)
+	go receiveLoop(ctx, rdb, marsHandle, toEarth)
+	go sendLoop(ctx, rdb, earthHandle, toEarth)
 
 	allLinks := []*link{toMars, toEarth}
 
+	log.Printf("  Earth↔Mars: %s / %s (delay: %ds / %ds)",
+		*earthIface, *marsIface, *delayToMarsSec, *delayToEarthSec)
 
-func (d *DelayDaemon) Run() {
-	log.Printf("L2 Delay Daemon started")
-	log.Printf("  Earth interface: %s", d.config.EarthIface)
-	log.Printf("  Mars interface:  %s", d.config.MarsIface)
-	log.Printf("  Earth->Mars delay: %v", d.config.DelayToMars)
-	log.Printf("  Mars->Earth delay: %v", d.config.DelayToEarth)
+	// ── Earth ↔ Moon link (optional) ─────────────────────────────────────
+	if *moonSrcIface != "" && *moonIface != "" {
+		toMoon := newLink("earth→moon", "delay:to_moon", "config:delay_to_moon", *delayToMoonSec)
+		fromMoon := newLink("moon→earth", "delay:from_moon", "config:delay_from_moon", *delayFromMoonSec)
+
+		rdb.Del(ctx, toMoon.queueKey, fromMoon.queueKey)
+		setInitialConfig(ctx, rdb, toMoon)
+		setInitialConfig(ctx, rdb, fromMoon)
+
+		moonSrcHandle := openHandle(*moonSrcIface)
+		moonHandle := openHandle(*moonIface)
+
+		go receiveLoop(ctx, rdb, moonSrcHandle, toMoon)
+		go sendLoop(ctx, rdb, moonHandle, toMoon)
+		go receiveLoop(ctx, rdb, moonHandle, fromMoon)
+		go sendLoop(ctx, rdb, moonSrcHandle, fromMoon)
+
+		allLinks = append(allLinks, toMoon, fromMoon)
 
 		log.Printf("  Earth↔Moon: %s / %s (delay: %ds / %ds)",
 			*moonSrcIface, *moonIface, *delayToMoonSec, *delayFromMoonSec)
 	}
 
-	// Start receiver goroutines
-	go d.receiveLoop(d.earthConn, "earth", queueToMars, d.getDelayToMars)
-	go d.receiveLoop(d.marsConn, "mars", queueToEarth, d.getDelayToEarth)
+	// Start config reload
+	go configReloadLoop(ctx, rdb, allLinks)
 
-	// Start sender goroutines
-	go d.sendLoop(queueToMars, d.marsConn, "mars")
-	go d.sendLoop(queueToEarth, d.earthConn, "earth")
+	log.Printf("L2 Delay Daemon started (%d links)", len(allLinks))
 
 	// Wait for signal
 	sigCh := make(chan os.Signal, 1)
@@ -102,11 +112,24 @@ func (d *DelayDaemon) Run() {
 	cancel()
 }
 
-func (d *DelayDaemon) Stop() {
-	d.cancel()
-	d.earthConn.Close()
-	d.marsConn.Close()
-	d.rdb.Close()
+// ── Link Helpers ─────────────────────────────────────────────────────────────
+
+func newLink(name, queueKey, configKey string, delaySec int) *link {
+	l := &link{
+		name:      name,
+		queueKey:  queueKey,
+		configKey: configKey,
+	}
+	l.delay.Store(int64(time.Duration(delaySec) * time.Second))
+	return l
+}
+
+func openHandle(iface string) *pcap.Handle {
+	h, err := pcap.OpenLive(iface, snapLen, true, pcap.BlockForever)
+	if err != nil {
+		log.Fatalf("pcap open %s: %v", iface, err)
+	}
+	return h
 }
 
 func setInitialConfig(ctx context.Context, rdb *redis.Client, l *link) {
@@ -149,67 +172,51 @@ func reloadDelay(ctx context.Context, rdb *redis.Client, l *link) {
 
 // ── Packet Reception ─────────────────────────────────────────────────────────
 
-func (d *DelayDaemon) receiveLoop(conn net.PacketConn, sourceName, queueName string, getDelay func() time.Duration) {
-	buf := make([]byte, 65535)
+func receiveLoop(ctx context.Context, rdb *redis.Client, handle *pcap.Handle, l *link) {
+	src := gopacket.NewPacketSource(handle, handle.LinkType())
+	src.NoCopy = true
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-		}
-
-		// Set read deadline to allow checking context
-		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-
-		n, _, err := conn.ReadFrom(buf)
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		case pkt, ok := <-src.Packets():
+			if !ok {
+				return
+			}
+			frame := pkt.Data()
+			if len(frame) == 0 {
 				continue
 			}
-			log.Printf("[%s] Read error: %v", sourceName, err)
-			continue
+
+			delay := time.Duration(l.delay.Load())
+			sendTime := time.Now().Add(delay)
+
+			// Prepend nanosecond timestamp for uniqueness (even if same frame content)
+			uniqueID := fmt.Sprintf("%d:", time.Now().UnixNano())
+			member := uniqueID + hex.EncodeToString(frame)
+
+			if err := rdb.ZAdd(ctx, l.queueKey, redis.Z{
+				Score: float64(sendTime.UnixNano()), Member: member,
+			}).Err(); err != nil {
+				log.Printf("[%s] Redis enqueue error: %v", l.name, err)
+				continue
+			}
+
+			vlanID := parseVLAN(frame)
+			info := describeFrame(frame)
+			vlanStr := ""
+			if vlanID > 0 {
+				vlanStr = fmt.Sprintf(" VLAN=%d", vlanID)
+			}
+			log.Printf("[%s] Queued %d bytes%s delay=%v | %s", l.name, len(frame), vlanStr, delay, info)
 		}
-
-		if n == 0 {
-			continue
-		}
-
-		// Copy frame data
-		frame := make([]byte, n)
-		copy(frame, buf[:n])
-
-		// Parse for logging
-		vlanID := parseVLAN(frame)
-		frameInfo := describeFrame(frame)
-
-		// Calculate send time using current delay
-		delay := getDelay()
-		sendTime := time.Now().Add(delay)
-		sendTimeStr := strconv.FormatInt(sendTime.UnixNano(), 10)
-
-		// Store in Redis sorted set (score = send time in nanoseconds)
-		member := hex.EncodeToString(frame)
-		err = d.rdb.ZAdd(d.ctx, queueName, redis.Z{
-			Score:  float64(sendTime.UnixNano()),
-			Member: member,
-		}).Err()
-
-		if err != nil {
-			log.Printf("[%s] Redis error: %v", sourceName, err)
-			continue
-		}
-
-		vlanStr := ""
-		if vlanID > 0 {
-			vlanStr = fmt.Sprintf(" VLAN=%d", vlanID)
-		}
-		log.Printf("[%s->%s] Queued %d bytes%s, send at %s | %s",
-			sourceName, queueName, n, vlanStr, sendTimeStr[:10], frameInfo)
 	}
 }
 
-func (d *DelayDaemon) sendLoop(queueName string, conn net.PacketConn, destName string) {
+// ── Packet Transmission ──────────────────────────────────────────────────────
+
+func sendLoop(ctx context.Context, rdb *redis.Client, handle *pcap.Handle, l *link) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -229,26 +236,27 @@ func (d *DelayDaemon) sendLoop(queueName string, conn net.PacketConn, destName s
 		}
 
 		for _, member := range results {
-			frame, err := hex.DecodeString(member)
-			if err != nil {
-				log.Printf("[->%s] Decode error: %v", destName, err)
+			parts := strings.SplitN(member, ":", 2)
+			if len(parts) != 2 {
+				rdb.ZRem(ctx, l.queueKey, member)
 				continue
 			}
-
-			// Send the frame
-			_, err = conn.WriteTo(frame, &rawAddr{})
+			frame, err := hex.DecodeString(parts[1])
 			if err != nil {
-				log.Printf("[->%s] Send error: %v", destName, err)
+				rdb.ZRem(ctx, l.queueKey, member)
 				continue
 			}
-
-			// Remove from queue
-			d.rdb.ZRem(d.ctx, queueName, member)
-
-			log.Printf("[->%s] Sent %d bytes", destName, len(frame))
+			if err := handle.WritePacketData(frame); err != nil {
+				log.Printf("[%s] Send error: %v", l.name, err)
+			} else {
+				log.Printf("[%s] Sent %d bytes", l.name, len(frame))
+			}
+			rdb.ZRem(ctx, l.queueKey, member)
 		}
 
-		time.Sleep(10 * time.Millisecond)
+		if len(results) == 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 }
 
