@@ -80,7 +80,7 @@
     opacity: 0.9;
   }
   .pkt.t-icmp { background: #4a9eff; box-shadow: 0 0 4px #4a9eff80; }
-  .pkt.t-icmpv6 { background: #7ac4ff; box-shadow: 0 0 4px #7ac4ff80; }
+  .pkt.t-icmpv6 { background: #4a9eff; box-shadow: 0 0 4px #4a9eff80; border-radius: 1px; }
   .pkt.t-arp { background: #ffcc00; box-shadow: 0 0 4px #ffcc0080; }
   .pkt.t-garp { background: #ffa500; box-shadow: 0 0 4px #ffa50080; }
   .pkt.t-tcp { background: #ff6a4a; box-shadow: 0 0 4px #ff6a4a80; }
@@ -219,7 +219,7 @@
       <span><i style="background:#ffcc00"></i>ARP</span>
       <span><i style="background:#ffa500"></i>GARP</span>
       <span><i style="background:#4a9eff"></i>ICMP</span>
-      <span><i style="background:#7ac4ff"></i>ICMPv6</span>
+      <span><i style="background:#4a9eff;border-radius:1px"></i>ICMPv6</span>
       <span><i style="background:#ff6a4a"></i>TCP</span>
       <span><i style="background:#4adf8a"></i>UDP</span>
       <span><i style="background:#888"></i>Other</span>
@@ -269,15 +269,12 @@
   <div class="log-box" id="log-box"></div>
 
   <!-- Packet Capture Log -->
-  <div class="log-header" style="margin-top:16px;flex-wrap:wrap;">
+  <div class="log-header" style="margin-top:16px;">
     <span class="section-label" style="margin-bottom:0">Packet Capture</span>
     <button class="log-filter active" data-pkt="all" onclick="setPktFilter('all',this)">All</button>
-    <button class="log-filter" data-pkt="to_mars" onclick="setPktFilter('to_mars',this)">Earth→Mars</button>
-    <button class="log-filter" data-pkt="to_earth" onclick="setPktFilter('to_earth',this)">Mars→Earth</button>
-    <button class="log-filter" data-pkt="to_moon" onclick="setPktFilter('to_moon',this)">Earth→Moon</button>
-    <button class="log-filter" data-pkt="from_moon" onclick="setPktFilter('from_moon',this)">Moon→Earth</button>
-    <button class="log-filter" data-pkt="to_custom" onclick="setPktFilter('to_custom',this)">Earth→Custom</button>
-    <button class="log-filter" data-pkt="from_custom" onclick="setPktFilter('from_custom',this)">Custom→Earth</button>
+    <button class="log-filter" data-pkt="mars" onclick="setPktFilter('mars',this)">Mars</button>
+    <button class="log-filter" data-pkt="moon" onclick="setPktFilter('moon',this)">Moon</button>
+    <button class="log-filter" data-pkt="custom" onclick="setPktFilter('custom',this)">Custom</button>
   </div>
   <div class="log-box" id="pkt-log-box" style="height:180px;font-size:0.65em;"></div>
 
@@ -605,19 +602,25 @@ async function fetchPktLog() {
   } catch(e) {}
 }
 
+const pktFilterMap = {
+  all: ['to_mars','to_earth','to_moon','from_moon','to_custom','from_custom'],
+  mars: ['to_mars','to_earth'],
+  moon: ['to_moon','from_moon'],
+  custom: ['to_custom','from_custom']
+};
+const dirInfo = {
+  to_mars:   {src:'Earth', dst:'Mars'},   to_earth:  {src:'Mars',  dst:'Earth'},
+  to_moon:   {src:'Earth', dst:'Moon'},   from_moon: {src:'Moon',  dst:'Earth'},
+  to_custom: {src:'Earth', dst:'Custom'}, from_custom:{src:'Custom',dst:'Earth'}
+};
+const nodeColors = {Earth:'#4a9eff', Mars:'#ff6a4a', Moon:'#c8c8aa', Custom:'#4adf8a'};
+const typeColors = {arp:'#ffcc00',garp:'#ffa500',icmp:'#4a9eff',icmpv6:'#4a9eff',tcp:'#ff6a4a',udp:'#4adf8a',other:'#888'};
+
 function renderPktLog() {
   const box = document.getElementById('pkt-log-box');
   if (!box) return;
   let entries = [];
-  const dirs = pktFilter === 'all'
-    ? ['to_mars','to_earth','to_moon','from_moon','to_custom','from_custom']
-    : [pktFilter];
-  const dirLabels = {
-    to_mars:'Earth→Mars', to_earth:'Mars→Earth',
-    to_moon:'Earth→Moon', from_moon:'Moon→Earth',
-    to_custom:'Earth→Custom', from_custom:'Custom→Earth'
-  };
-  const typeColors = {arp:'#ffcc00',garp:'#ffa500',icmp:'#4a9eff',icmpv6:'#7ac4ff',tcp:'#ff6a4a',udp:'#4adf8a',other:'#888'};
+  const dirs = pktFilterMap[pktFilter] || ['to_mars','to_earth'];
   dirs.forEach(dir => {
     const logs = pktLogData[dir] || [];
     logs.forEach(e => {
@@ -629,7 +632,11 @@ function renderPktLog() {
   box.innerHTML = entries.map(e => {
     const t = new Date(e.ts).toLocaleTimeString('en-GB',{hour12:false})+'.'+String(e.ts%1000).padStart(3,'0');
     const tc = typeColors[e.type]||'#888';
-    return '<div><span class="lt">'+t+'</span> <span style="color:#5a7a9a">['+dirLabels[e.dir]+']</span> '+
+    const di = dirInfo[e.dir];
+    const dirHtml = '<span style="color:'+nodeColors[di.src]+'">'+di.src+'</span>'+
+      '<span style="color:#5a7a9a">→</span>'+
+      '<span style="color:'+nodeColors[di.dst]+'">'+di.dst+'</span>';
+    return '<div><span class="lt">'+t+'</span> '+dirHtml+' '+
       '<span style="color:'+tc+'">'+e.type.toUpperCase()+'</span> '+
       '<span style="color:#5a6a7a">'+e.size+'B</span> '+
       '<span style="color:#7a8a7a">'+escHtml(e.desc)+'</span></div>';
