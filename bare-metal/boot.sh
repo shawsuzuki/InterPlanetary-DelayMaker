@@ -67,7 +67,7 @@ ensure_vlan_subif() {
     fi
     local subif="${iface}.${vlan}"
     if ! ip link show "$subif" >/dev/null 2>&1; then
-        echo "Creating VLAN sub-interface $subif (vlan id $vlan)..."
+        echo "Creating VLAN sub-interface $subif (vlan id $vlan)..." >&2
         ip link add link "$iface" name "$subif" type vlan id "$vlan"
     fi
     ip addr flush dev "$subif" || true
