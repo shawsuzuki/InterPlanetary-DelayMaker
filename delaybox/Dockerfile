@@ -3,10 +3,10 @@ FROM golang:1.22-alpine AS builder
 RUN apk add --no-cache git libpcap-dev gcc musl-dev
 
 WORKDIR /app
-COPY go.mod ./
-COPY main.go .
+COPY go.mod go.sum ./
+COPY *.go ./
 RUN go mod tidy && go mod download
-RUN CGO_ENABLED=1 GOOS=linux go build -o /delaybox main.go
+RUN CGO_ENABLED=1 GOOS=linux go build -o /delaybox .
 
 # Runtime image
 FROM alpine:latest
@@ -20,6 +20,7 @@ RUN apk add --no-cache \
 
 COPY --from=builder /delaybox /usr/local/bin/delaybox
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY entrypoint-bare.sh /usr/local/bin/entrypoint-bare.sh
+RUN chmod +x /entrypoint.sh /usr/local/bin/entrypoint-bare.sh
 
 ENTRYPOINT ["/entrypoint.sh"]

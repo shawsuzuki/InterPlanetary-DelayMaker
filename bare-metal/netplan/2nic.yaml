@@ -1,0 +1,28 @@
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp1s0:
+      dhcp4: false
+      dhcp6: false
+      optional: true
+      link-local: []
+      accept-ra: false
+    enp2s0:
+      dhcp4: false
+      dhcp6: false
+      optional: true
+      link-local: []
+      accept-ra: false
+  vlans:
+    enp1s0.6:
+      id: 6
+      link: enp1s0
+      dhcp4: false
+      addresses:
+        - 192.168.100.4/24
+      routes:
+        - to: default
+          via: 192.168.100.1
+      nameservers:
+        addresses: [1.1.1.1, 8.8.8.8]

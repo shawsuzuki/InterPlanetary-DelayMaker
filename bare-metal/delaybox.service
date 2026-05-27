@@ -1,0 +1,17 @@
+[Unit]
+Description=InterPlanetary Delay Maker (bare-metal)
+Documentation=https://github.com/shawsuzuki/InterPlanetary-DelayMaker
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=__REPO_ROOT__
+ExecStart=__REPO_ROOT__/bare-metal/boot.sh
+ExecStop=/usr/bin/docker compose -f __REPO_ROOT__/docker-compose.bare.yml down
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

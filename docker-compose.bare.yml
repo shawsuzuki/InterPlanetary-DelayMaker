@@ -1,0 +1,67 @@
+# Bare-metal mode: run delaybox between two physical NICs on a Linux host.
+# Use with bare-metal/setup.sh, which configures NICs and starts these services.
+#
+# Required env (.env at repo root or passed via --env-file):
+#   EARTH_IFACE   physical NIC connected to the "Earth" host
+#   MARS_IFACE    physical NIC connected to the "Mars" host
+# Optional:
+#   MOON_SRC_IFACE / MOON_IFACE       to enable Earth↔Moon link
+#   CUSTOM_SRC_IFACE / CUSTOM_IFACE   to enable Earth↔Custom link
+#   DELAY_EARTH_TO_MARS / DELAY_MARS_TO_EARTH (seconds, default 10)
+#   DELAY_EARTH_TO_MOON / DELAY_MOON_TO_EARTH (seconds, default 1.28)
+#   DELAY_EARTH_TO_CUSTOM / DELAY_CUSTOM_TO_EARTH (seconds, default 5)
+
+services:
+  delaybox:
+    build: ./delaybox
+    container_name: delaybox
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    entrypoint: ["/usr/local/bin/entrypoint-bare.sh"]
+    environment:
+      - EARTH_IFACE
+      - MARS_IFACE
+      - MOON_SRC_IFACE
+      - MOON_IFACE
+      - CUSTOM_SRC_IFACE
+      - CUSTOM_IFACE
+      - DELAY_EARTH_TO_MARS
+      - DELAY_MARS_TO_EARTH
+      - DELAY_EARTH_TO_MOON
+      - DELAY_MOON_TO_EARTH
+      - DELAY_EARTH_TO_CUSTOM
+      - DELAY_CUSTOM_TO_EARTH
+      - REDIS_ADDR=127.0.0.1:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    network_mode: host
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    container_name: dashboard
+    network_mode: host
+    environment:
+      - REDIS_ADDR=127.0.0.1:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
