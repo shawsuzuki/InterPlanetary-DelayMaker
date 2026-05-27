@@ -173,22 +173,75 @@ Earth ホストから:
 ping 192.168.2.2
 ```
 
-### よく使うコマンド
+### 本番運用 (初回セットアップ後の日常操作)
+
+初回 `setup.sh` + `install-systemd.sh` を済ませてあれば、再起動後は自動で起動する。手動操作は systemd で:
 
 ```bash
-# 遅延をリアルタイム変更（B機上）
-docker exec redis redis-cli SET config:delay_to_mars 600
-docker exec redis redis-cli SET config:delay_to_earth 600
+sudo systemctl start delaybox       # 起動
+sudo systemctl stop delaybox        # 停止 (compose down も実行)
+sudo systemctl restart delaybox     # .env 変更後など
+sudo systemctl status delaybox      # 状態確認
+journalctl -u delaybox -f           # ログ追跡
+```
 
-# systemd 制御
-sudo systemctl start delaybox
-sudo systemctl stop delaybox          # docker compose down も走る
-sudo systemctl restart delaybox       # .env を変えた後など
+**ダッシュボード**: `http://<B機mgmt-IP>:8080` （例: http://192.168.100.4:8080）
+
+### 遅延時間の変更
+
+#### 方法1: ダッシュボード (推奨)
+
+ブラウザで `http://<B機>:8080` を開く:
+- **Settings タブ → Mars Delay**: Demo (5s) / Closest (182s) / Farthest (1338s) プリセット
+- **Settings タブ → Dynamic Delay**: 連続的に増減（例: 100s → 1338s を毎秒+5s で変化）でリアルな軌道変化を再現
+- 設定変更は1秒以内に反映、再起動不要
+
+#### 方法2: Redis CLI (B機上)
+
+```bash
+# 火星: 最接近 (3分2秒 = 182秒)
+docker exec redis redis-cli SET config:delay_to_mars 182
+docker exec redis redis-cli SET config:delay_to_earth 182
+
+# 火星: 最遠 (22分18秒 = 1338秒)
+docker exec redis redis-cli SET config:delay_to_mars 1338
+docker exec redis redis-cli SET config:delay_to_earth 1338
+
+# デモ用 (10秒)
+docker exec redis redis-cli SET config:delay_to_mars 10
+docker exec redis redis-cli SET config:delay_to_earth 10
+
+# 現在値の確認
+docker exec redis redis-cli GET config:delay_to_mars
+```
+
+変更は1秒以内に delaybox が拾って反映。
+
+#### 方法3: 起動時のデフォルト値変更
+
+repo root の `.env` を編集して `systemctl restart delaybox`:
+```bash
+DELAY_EARTH_TO_MARS=600
+DELAY_MARS_TO_EARTH=600
+```
+
+### その他のコマンド
+
+```bash
+# キューを全クリア（過去パケット破棄）
+docker exec redis redis-cli DEL delay:to_mars delay:to_earth
+# またはダッシュボードの "Flush All Queues" ボタン
+
+# 静的ARP（Earth/Mars 各ホスト、long delay 時必須）
+# Earth で
+sudo ip neigh replace <相手IP> lladdr <相手MAC> dev vlan.2 nud permanent
 
 # アンインストール
 sudo ./bare-metal/install-systemd.sh --uninstall
 sudo docker compose -f docker-compose.bare.yml down -v
 ```
+
+> **長時間遅延の注意**: Linux のARPテーブルは60秒で老化するため、遅延が60秒を超える場合は両ホストで **static ARP (`nud permanent`)** を必ず設定する。設定しないと60秒ごとに数十秒間 ping が `Destination Host Unreachable` になる。
 
 ### トラブルシューティング (実機モード)
 
