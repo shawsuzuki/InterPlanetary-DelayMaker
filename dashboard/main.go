@@ -64,6 +64,13 @@ type Status struct {
 	QueueFromCustom int64   `json:"queue_from_custom"`
 	MoonEnabled     bool    `json:"moon_enabled"`
 	CustomEnabled   bool    `json:"custom_enabled"`
+	// Node IPs shown in the visualizer (configurable via env so the same
+	// dashboard can serve Docker-mode and bare-metal-mode setups).
+	EarthIP  string `json:"earth_ip"`
+	MarsIP   string `json:"mars_ip"`
+	MoonIP   string `json:"moon_ip"`
+	CustomIP string `json:"custom_ip"`
+	Mode     string `json:"mode"` // "docker" or "bare-metal"
 	// Packet positions: progress + type for visualization dots
 	PktsToMars     []PacketDot `json:"pkts_to_mars"`
 	PktsToEarth    []PacketDot `json:"pkts_to_earth"`
@@ -136,11 +143,20 @@ var activeRamps sync.Map // map[string]*rampState
 
 // ── Main ────────────────────────────────────────────────────────────────────
 
-func main() {
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = "localhost:6379"
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
+	return def
+}
+
+func main() {
+	redisAddr := envOr("REDIS_ADDR", "localhost:6379")
+	mode := envOr("MODE", "docker")
+	earthIP := envOr("EARTH_IP", "10.0.0.2")
+	marsIP := envOr("MARS_IP", "10.0.0.3")
+	moonIP := envOr("MOON_IP", "10.1.0.3")
+	customIP := envOr("CUSTOM_IP", "10.2.0.3")
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
 	ctx := context.Background()
@@ -174,6 +190,12 @@ func main() {
 		if val, err := rdb.Get(ctx, configKeyFromCustom).Result(); err == nil {
 			status.DelayFromCustom, _ = strconv.ParseFloat(val, 64)
 		}
+		status.Mode = mode
+		status.EarthIP = earthIP
+		status.MarsIP = marsIP
+		status.MoonIP = moonIP
+		status.CustomIP = customIP
+
 		status.QueueToMars = rdb.ZCard(ctx, queueToMars).Val()
 		status.QueueToEarth = rdb.ZCard(ctx, queueToEarth).Val()
 		status.QueueToMoon = rdb.ZCard(ctx, queueToMoon).Val()

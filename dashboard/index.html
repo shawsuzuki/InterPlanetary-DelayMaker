@@ -199,7 +199,7 @@
             <div class="vis-delay-label fwd-label" id="mars-fwd-delay">--</div>
             <div class="vis-delay-label rev-label" id="mars-rev-delay">--</div>
           </div>
-          <div class="vis-node c-mars"><div class="vis-node-dot"></div><div class="vis-node-label">MARS</div><div class="vis-node-ip">10.0.0.3</div></div>
+          <div class="vis-node c-mars"><div class="vis-node-dot"></div><div class="vis-node-label">MARS</div><div class="vis-node-ip" id="ip-mars">10.0.0.3</div></div>
         </div>
         <div class="vis-spoke hidden-section" id="vis-moon-link">
           <div class="vis-track">
@@ -210,7 +210,7 @@
             <div class="vis-delay-label fwd-label" id="moon-fwd-delay">--</div>
             <div class="vis-delay-label rev-label" id="moon-rev-delay">--</div>
           </div>
-          <div class="vis-node c-moon"><div class="vis-node-dot"></div><div class="vis-node-label">MOON</div><div class="vis-node-ip">10.1.0.3</div></div>
+          <div class="vis-node c-moon"><div class="vis-node-dot"></div><div class="vis-node-label">MOON</div><div class="vis-node-ip" id="ip-moon">10.1.0.3</div></div>
         </div>
         <div class="vis-spoke hidden-section" id="vis-custom-link">
           <div class="vis-track">
@@ -221,7 +221,7 @@
             <div class="vis-delay-label fwd-label" id="custom-fwd-delay">--</div>
             <div class="vis-delay-label rev-label" id="custom-rev-delay">--</div>
           </div>
-          <div class="vis-node c-custom"><div class="vis-node-dot"></div><div class="vis-node-label">CUSTOM</div><div class="vis-node-ip">10.2.0.3</div></div>
+          <div class="vis-node c-custom"><div class="vis-node-dot"></div><div class="vis-node-label">CUSTOM</div><div class="vis-node-ip" id="ip-custom">10.2.0.3</div></div>
         </div>
       </div>
     </div>
@@ -365,10 +365,10 @@
   <div class="origin-bar">
     <label>Origin:</label>
     <select id="origin-select" onchange="renderCommands()">
-      <option value="earth">Earth (10.0.0.2)</option>
-      <option value="mars">Mars (10.0.0.3)</option>
-      <option value="moon">Moon (10.1.0.3)</option>
-      <option value="custom">Custom (10.2.0.3)</option>
+      <option value="earth" id="opt-earth">Earth</option>
+      <option value="mars"  id="opt-mars">Mars</option>
+      <option value="moon"  id="opt-moon">Moon</option>
+      <option value="custom" id="opt-custom">Custom</option>
     </select>
   </div>
   <div class="cmd-list" id="cmd-list"></div>
@@ -387,6 +387,8 @@ let moonEnabled = false, customEnabled = false;
 let prevData = null;
 let logLines = [];  // {time, msg, cls, cat}
 let logFilter = 'all';
+let nodeIPs = {earth:'10.0.0.2', mars:'10.0.0.3', moon:'10.1.0.3', custom:'10.2.0.3'};
+let runMode = 'docker';
 
 // ── Tab Routing ────────────────────────────────────
 function switchTab(name) {
@@ -656,23 +658,43 @@ function renderPktLog() {
 function escHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
 // ── Commands ───────────────────────────────────────
-const TARGETS = {
-  earth:[
-    {label:'Ping Mars',cmd:'docker exec earth ping 10.0.0.3'},
-    {label:'Ping Moon',cmd:'docker exec earth ping 10.1.0.3',need:'moon'},
-    {label:'Ping Custom',cmd:'docker exec earth ping 10.2.0.3',need:'custom'},
-    {label:'NC listen',cmd:'docker exec mars sh -c "nc -l -p 9000 > /tmp/received.jpg"'},
-    {label:'NC send',cmd:'docker exec earth sh -c "nc 10.0.0.3 9000 < /samples/mars_sol0.jpeg"'},
-    {label:'View logs',cmd:'docker compose logs -f delaybox'},
-  ],
-  mars:[{label:'Ping Earth',cmd:'docker exec mars ping 10.0.0.2'},{label:'View logs',cmd:'docker compose logs -f delaybox'}],
-  moon:[{label:'Ping Earth',cmd:'docker exec moon ping 10.1.0.2'},{label:'View logs',cmd:'docker compose logs -f delaybox'}],
-  custom:[{label:'Ping Earth',cmd:'docker exec custom ping 10.2.0.2'},{label:'View logs',cmd:'docker compose logs -f delaybox'}],
-};
+function buildTargets() {
+  const e = nodeIPs.earth, m = nodeIPs.mars, mo = nodeIPs.moon, c = nodeIPs.custom;
+  const composeFile = runMode === 'bare-metal' ? 'docker-compose.bare.yml' : 'docker-compose.yml';
+  const logsCmd = 'docker compose -f '+composeFile+' logs -f delaybox';
+  if (runMode === 'bare-metal') {
+    return {
+      earth:[
+        {label:'Ping Mars',cmd:'ping '+m},
+        {label:'Ping Moon',cmd:'ping '+mo,need:'moon'},
+        {label:'Ping Custom',cmd:'ping '+c,need:'custom'},
+        {label:'View logs (delay box)',cmd:logsCmd},
+      ],
+      mars:  [{label:'Ping Earth',cmd:'ping '+e}, {label:'View logs',cmd:logsCmd}],
+      moon:  [{label:'Ping Earth',cmd:'ping '+e}, {label:'View logs',cmd:logsCmd}],
+      custom:[{label:'Ping Earth',cmd:'ping '+e}, {label:'View logs',cmd:logsCmd}],
+    };
+  }
+  // docker mode (default)
+  return {
+    earth:[
+      {label:'Ping Mars',cmd:'docker exec earth ping '+m},
+      {label:'Ping Moon',cmd:'docker exec earth ping '+mo,need:'moon'},
+      {label:'Ping Custom',cmd:'docker exec earth ping '+c,need:'custom'},
+      {label:'NC listen',cmd:'docker exec mars sh -c "nc -l -p 9000 > /tmp/received.jpg"'},
+      {label:'NC send',cmd:'docker exec earth sh -c "nc '+m+' 9000 < /samples/mars_sol0.jpeg"'},
+      {label:'View logs',cmd:logsCmd},
+    ],
+    mars:  [{label:'Ping Earth',cmd:'docker exec mars ping '+e},   {label:'View logs',cmd:logsCmd}],
+    moon:  [{label:'Ping Earth',cmd:'docker exec moon ping 10.1.0.2'}, {label:'View logs',cmd:logsCmd}],
+    custom:[{label:'Ping Earth',cmd:'docker exec custom ping 10.2.0.2'},{label:'View logs',cmd:logsCmd}],
+  };
+}
 function renderCommands() {
   const origin = document.getElementById('origin-select').value;
   const list = document.getElementById('cmd-list');
-  list.innerHTML = (TARGETS[origin]||[])
+  const targets = buildTargets();
+  list.innerHTML = (targets[origin]||[])
     .filter(c => !c.need||(c.need==='moon'&&moonEnabled)||(c.need==='custom'&&customEnabled))
     .map(c => '<div class="cmd-row"><span class="cmd-label">'+c.label+'</span><code class="cmd-code">'+c.cmd+'</code><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>')
     .join('');
@@ -692,6 +714,18 @@ async function fetchStatus() {
     const d = await res.json();
     detectChanges(d);
     prevData = d;
+
+    // Node IPs / mode (env-driven; falls back to docker defaults server-side)
+    if (d.earth_ip)  nodeIPs.earth  = d.earth_ip;
+    if (d.mars_ip)   { nodeIPs.mars = d.mars_ip; document.getElementById('ip-mars').textContent = d.mars_ip; }
+    if (d.moon_ip)   { nodeIPs.moon = d.moon_ip; const el=document.getElementById('ip-moon'); if(el) el.textContent = d.moon_ip; }
+    if (d.custom_ip) { nodeIPs.custom = d.custom_ip; const el=document.getElementById('ip-custom'); if(el) el.textContent = d.custom_ip; }
+    if (d.mode) runMode = d.mode;
+    // Update origin-select labels with current IPs
+    document.getElementById('opt-earth').textContent = 'Earth ('+nodeIPs.earth+')';
+    document.getElementById('opt-mars').textContent  = 'Mars ('+nodeIPs.mars+')';
+    document.getElementById('opt-moon').textContent  = 'Moon ('+nodeIPs.moon+')';
+    document.getElementById('opt-custom').textContent= 'Custom ('+nodeIPs.custom+')';
 
     // Mars
     document.getElementById('delay-mars').innerHTML = fmtD(d.delay_to_mars);

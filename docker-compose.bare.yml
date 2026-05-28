@@ -58,6 +58,11 @@ services:
     network_mode: host
     environment:
       - REDIS_ADDR=127.0.0.1:6379
+      - MODE=bare-metal
+      - EARTH_IP=${EARTH_IP:-192.168.2.1}
+      - MARS_IP=${MARS_IP:-192.168.2.2}
+      - MOON_IP=${MOON_IP:-}
+      - CUSTOM_IP=${CUSTOM_IP:-}
     depends_on:
       redis:
         condition: service_healthy
