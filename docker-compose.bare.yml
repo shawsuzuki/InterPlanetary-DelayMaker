@@ -60,9 +60,12 @@ services:
       - REDIS_ADDR=127.0.0.1:6379
       - MODE=bare-metal
       - EARTH_IP=${EARTH_IP:-192.168.2.1}
+      - EARTH_IP_MARS=${EARTH_IP_MARS:-192.168.2.1}
+      - EARTH_IP_MOON=${EARTH_IP_MOON:-192.168.1.1}
       - MARS_IP=${MARS_IP:-192.168.2.2}
-      - MOON_IP=${MOON_IP:-}
-      - CUSTOM_IP=${CUSTOM_IP:-}
+      - MOON_IP=${MOON_IP:-192.168.1.2}
+      - MOON_LABEL=${MOON_LABEL:-LUNAR}
+      - HIDE_CUSTOM=${HIDE_CUSTOM:-1}
     depends_on:
       redis:
         condition: service_healthy

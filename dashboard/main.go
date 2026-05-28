@@ -66,11 +66,18 @@ type Status struct {
 	CustomEnabled   bool    `json:"custom_enabled"`
 	// Node IPs shown in the visualizer (configurable via env so the same
 	// dashboard can serve Docker-mode and bare-metal-mode setups).
-	EarthIP  string `json:"earth_ip"`
-	MarsIP   string `json:"mars_ip"`
-	MoonIP   string `json:"moon_ip"`
-	CustomIP string `json:"custom_ip"`
-	Mode     string `json:"mode"` // "docker" or "bare-metal"
+	EarthIP       string `json:"earth_ip"`
+	EarthIPMars   string `json:"earth_ip_mars"`   // Earth's data-plane IP toward Mars
+	EarthIPMoon   string `json:"earth_ip_moon"`   // Earth's IP toward Moon/Luna
+	EarthIPCustom string `json:"earth_ip_custom"` // Earth's IP toward Custom
+	MarsIP        string `json:"mars_ip"`
+	MoonIP        string `json:"moon_ip"`
+	CustomIP      string `json:"custom_ip"`
+	MarsLabel     string `json:"mars_label"`
+	MoonLabel     string `json:"moon_label"`
+	CustomLabel   string `json:"custom_label"`
+	HideCustom    bool   `json:"hide_custom"` // if true, dashboard hides Custom section entirely
+	Mode          string `json:"mode"`        // "docker" or "bare-metal"
 	// Packet positions: progress + type for visualization dots
 	PktsToMars     []PacketDot `json:"pkts_to_mars"`
 	PktsToEarth    []PacketDot `json:"pkts_to_earth"`
@@ -157,6 +164,15 @@ func main() {
 	marsIP := envOr("MARS_IP", "10.0.0.3")
 	moonIP := envOr("MOON_IP", "10.1.0.3")
 	customIP := envOr("CUSTOM_IP", "10.2.0.3")
+	// Earth's per-link IPs default to the primary EARTH_IP when not set,
+	// matching Docker mode where Earth has the same IP on every link.
+	earthIPMars := envOr("EARTH_IP_MARS", earthIP)
+	earthIPMoon := envOr("EARTH_IP_MOON", earthIP)
+	earthIPCustom := envOr("EARTH_IP_CUSTOM", earthIP)
+	marsLabel := envOr("MARS_LABEL", "MARS")
+	moonLabel := envOr("MOON_LABEL", "MOON")
+	customLabel := envOr("CUSTOM_LABEL", "CUSTOM")
+	hideCustom := os.Getenv("HIDE_CUSTOM") == "1" || os.Getenv("HIDE_CUSTOM") == "true"
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
 	ctx := context.Background()
@@ -192,9 +208,16 @@ func main() {
 		}
 		status.Mode = mode
 		status.EarthIP = earthIP
+		status.EarthIPMars = earthIPMars
+		status.EarthIPMoon = earthIPMoon
+		status.EarthIPCustom = earthIPCustom
 		status.MarsIP = marsIP
 		status.MoonIP = moonIP
 		status.CustomIP = customIP
+		status.MarsLabel = marsLabel
+		status.MoonLabel = moonLabel
+		status.CustomLabel = customLabel
+		status.HideCustom = hideCustom
 
 		status.QueueToMars = rdb.ZCard(ctx, queueToMars).Val()
 		status.QueueToEarth = rdb.ZCard(ctx, queueToEarth).Val()

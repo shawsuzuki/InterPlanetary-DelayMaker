@@ -61,6 +61,11 @@
   .c-custom .vis-node-dot { background: #1a2a1a; border-color: #4adf8a; }
   .c-custom .vis-node-label { color: #4adf8a; }
 
+  .vis-earth-ip {
+    width: 70px; flex-shrink: 0; text-align: right;
+    font-size: 0.55em; color: #4a9eff; padding-right: 4px;
+    font-variant-numeric: tabular-nums;
+  }
   .vis-track { flex: 1; height: 54px; position: relative; margin: 0 10px; }
   .vis-track-line { position: absolute; left: 0; right: 0; height: 1px; background: #2a3a4a; }
   .vis-track-line.fwd-line { top: 14px; }
@@ -191,6 +196,7 @@
       </div>
       <div class="vis-spokes">
         <div class="vis-spoke" id="vis-mars-link">
+          <div class="vis-earth-ip" id="earth-ip-mars"></div>
           <div class="vis-track">
             <div class="vis-track-line fwd-line"></div>
             <div class="vis-track-line rev-line"></div>
@@ -199,9 +205,10 @@
             <div class="vis-delay-label fwd-label" id="mars-fwd-delay">--</div>
             <div class="vis-delay-label rev-label" id="mars-rev-delay">--</div>
           </div>
-          <div class="vis-node c-mars"><div class="vis-node-dot"></div><div class="vis-node-label">MARS</div><div class="vis-node-ip" id="ip-mars">10.0.0.3</div></div>
+          <div class="vis-node c-mars"><div class="vis-node-dot"></div><div class="vis-node-label" id="label-mars">MARS</div><div class="vis-node-ip" id="ip-mars">10.0.0.3</div></div>
         </div>
         <div class="vis-spoke hidden-section" id="vis-moon-link">
+          <div class="vis-earth-ip" id="earth-ip-moon"></div>
           <div class="vis-track">
             <div class="vis-track-line fwd-line"></div>
             <div class="vis-track-line rev-line"></div>
@@ -210,9 +217,10 @@
             <div class="vis-delay-label fwd-label" id="moon-fwd-delay">--</div>
             <div class="vis-delay-label rev-label" id="moon-rev-delay">--</div>
           </div>
-          <div class="vis-node c-moon"><div class="vis-node-dot"></div><div class="vis-node-label">MOON</div><div class="vis-node-ip" id="ip-moon">10.1.0.3</div></div>
+          <div class="vis-node c-moon"><div class="vis-node-dot"></div><div class="vis-node-label" id="label-moon">MOON</div><div class="vis-node-ip" id="ip-moon">10.1.0.3</div></div>
         </div>
         <div class="vis-spoke hidden-section" id="vis-custom-link">
+          <div class="vis-earth-ip" id="earth-ip-custom"></div>
           <div class="vis-track">
             <div class="vis-track-line fwd-line"></div>
             <div class="vis-track-line rev-line"></div>
@@ -221,7 +229,7 @@
             <div class="vis-delay-label fwd-label" id="custom-fwd-delay">--</div>
             <div class="vis-delay-label rev-label" id="custom-rev-delay">--</div>
           </div>
-          <div class="vis-node c-custom"><div class="vis-node-dot"></div><div class="vis-node-label">CUSTOM</div><div class="vis-node-ip" id="ip-custom">10.2.0.3</div></div>
+          <div class="vis-node c-custom"><div class="vis-node-dot"></div><div class="vis-node-label" id="label-custom">CUSTOM</div><div class="vis-node-ip" id="ip-custom">10.2.0.3</div></div>
         </div>
       </div>
     </div>
@@ -237,21 +245,21 @@
   </div>
 
   <!-- Mars Cards -->
-  <div class="section-label">Mars Link</div>
+  <div class="section-label" id="mars-section-label">Mars Link</div>
   <div class="grid">
-    <div class="card"><div class="card-label">Delay<br>Earth &rarr; Mars</div><div class="card-value earth" id="delay-mars">--</div></div>
-    <div class="card"><div class="card-label">Delay<br>Mars &rarr; Earth</div><div class="card-value mars" id="delay-earth">--</div></div>
-    <div class="card"><div class="card-label">Queue<br>to Mars</div><div class="card-value queue" id="queue-mars">--</div></div>
+    <div class="card"><div class="card-label">Delay<br>Earth &rarr; <span class="lbl-mars">Mars</span></div><div class="card-value earth" id="delay-mars">--</div></div>
+    <div class="card"><div class="card-label">Delay<br><span class="lbl-mars">Mars</span> &rarr; Earth</div><div class="card-value mars" id="delay-earth">--</div></div>
+    <div class="card"><div class="card-label">Queue<br>to <span class="lbl-mars">Mars</span></div><div class="card-value queue" id="queue-mars">--</div></div>
     <div class="card"><div class="card-label">Queue<br>to Earth</div><div class="card-value queue" id="queue-earth">--</div></div>
   </div>
 
   <!-- Moon Cards -->
   <div class="hidden-section" id="moon-section">
-    <div class="section-label">Moon Link</div>
+    <div class="section-label" id="moon-section-label">Moon Link</div>
     <div class="grid">
-      <div class="card"><div class="card-label">Delay<br>Earth &rarr; Moon</div><div class="card-value moon" id="delay-moon">--</div></div>
-      <div class="card"><div class="card-label">Delay<br>Moon &rarr; Earth</div><div class="card-value moon" id="delay-from-moon">--</div></div>
-      <div class="card"><div class="card-label">Queue<br>to Moon</div><div class="card-value queue" id="queue-moon">--</div></div>
+      <div class="card"><div class="card-label">Delay<br>Earth &rarr; <span class="lbl-moon">Moon</span></div><div class="card-value moon" id="delay-moon">--</div></div>
+      <div class="card"><div class="card-label">Delay<br><span class="lbl-moon">Moon</span> &rarr; Earth</div><div class="card-value moon" id="delay-from-moon">--</div></div>
+      <div class="card"><div class="card-label">Queue<br>to <span class="lbl-moon">Moon</span></div><div class="card-value queue" id="queue-moon">--</div></div>
       <div class="card"><div class="card-label">Queue<br>to Earth</div><div class="card-value queue" id="queue-from-moon">--</div></div>
     </div>
   </div>
@@ -401,6 +409,7 @@ function switchTab(name) {
 (function(){ const h = location.hash.replace('#',''); if(['status','settings','commands'].includes(h)) switchTab(h); })();
 
 // ── Format ─────────────────────────────────────────
+function titleCase(s) { return s ? s.charAt(0).toUpperCase()+s.slice(1).toLowerCase() : s; }
 function fmtD(s) {
   if (s < 60) return s.toFixed(1)+'s';
   return Math.floor(s/60)+'m '+(s%60).toFixed(0)+'s';
@@ -659,35 +668,41 @@ function escHtml(s) { const d=document.createElement('div'); d.textContent=s; re
 
 // ── Commands ───────────────────────────────────────
 function buildTargets() {
-  const e = nodeIPs.earth, m = nodeIPs.mars, mo = nodeIPs.moon, c = nodeIPs.custom;
+  const em = nodeIPs.earthMars   || nodeIPs.earth;   // Earth's IP toward Mars
+  const eo = nodeIPs.earthMoon   || nodeIPs.earth;   // Earth's IP toward Moon
+  const ec = nodeIPs.earthCustom || nodeIPs.earth;   // Earth's IP toward Custom
+  const m = nodeIPs.mars, mo = nodeIPs.moon, c = nodeIPs.custom;
+  const marsName   = (prevData && prevData.mars_label)   ? titleCase(prevData.mars_label)   : 'Mars';
+  const moonName   = (prevData && prevData.moon_label)   ? titleCase(prevData.moon_label)   : 'Moon';
+  const customName = (prevData && prevData.custom_label) ? titleCase(prevData.custom_label) : 'Custom';
   const composeFile = runMode === 'bare-metal' ? 'docker-compose.bare.yml' : 'docker-compose.yml';
   const logsCmd = 'docker compose -f '+composeFile+' logs -f delaybox';
   if (runMode === 'bare-metal') {
     return {
       earth:[
-        {label:'Ping Mars',cmd:'ping '+m},
-        {label:'Ping Moon',cmd:'ping '+mo,need:'moon'},
-        {label:'Ping Custom',cmd:'ping '+c,need:'custom'},
+        {label:'Ping '+marsName,cmd:'ping '+m},
+        {label:'Ping '+moonName,cmd:'ping '+mo,need:'moon'},
+        {label:'Ping '+customName,cmd:'ping '+c,need:'custom'},
         {label:'View logs (delay box)',cmd:logsCmd},
       ],
-      mars:  [{label:'Ping Earth',cmd:'ping '+e}, {label:'View logs',cmd:logsCmd}],
-      moon:  [{label:'Ping Earth',cmd:'ping '+e}, {label:'View logs',cmd:logsCmd}],
-      custom:[{label:'Ping Earth',cmd:'ping '+e}, {label:'View logs',cmd:logsCmd}],
+      mars:  [{label:'Ping Earth',cmd:'ping '+em}, {label:'View logs',cmd:logsCmd}],
+      moon:  [{label:'Ping Earth',cmd:'ping '+eo}, {label:'View logs',cmd:logsCmd}],
+      custom:[{label:'Ping Earth',cmd:'ping '+ec}, {label:'View logs',cmd:logsCmd}],
     };
   }
   // docker mode (default)
   return {
     earth:[
-      {label:'Ping Mars',cmd:'docker exec earth ping '+m},
-      {label:'Ping Moon',cmd:'docker exec earth ping '+mo,need:'moon'},
-      {label:'Ping Custom',cmd:'docker exec earth ping '+c,need:'custom'},
+      {label:'Ping '+marsName,cmd:'docker exec earth ping '+m},
+      {label:'Ping '+moonName,cmd:'docker exec earth ping '+mo,need:'moon'},
+      {label:'Ping '+customName,cmd:'docker exec earth ping '+c,need:'custom'},
       {label:'NC listen',cmd:'docker exec mars sh -c "nc -l -p 9000 > /tmp/received.jpg"'},
       {label:'NC send',cmd:'docker exec earth sh -c "nc '+m+' 9000 < /samples/mars_sol0.jpeg"'},
       {label:'View logs',cmd:logsCmd},
     ],
-    mars:  [{label:'Ping Earth',cmd:'docker exec mars ping '+e},   {label:'View logs',cmd:logsCmd}],
-    moon:  [{label:'Ping Earth',cmd:'docker exec moon ping 10.1.0.2'}, {label:'View logs',cmd:logsCmd}],
-    custom:[{label:'Ping Earth',cmd:'docker exec custom ping 10.2.0.2'},{label:'View logs',cmd:logsCmd}],
+    mars:  [{label:'Ping Earth',cmd:'docker exec mars ping '+em},  {label:'View logs',cmd:logsCmd}],
+    moon:  [{label:'Ping Earth',cmd:'docker exec moon ping '+eo},  {label:'View logs',cmd:logsCmd}],
+    custom:[{label:'Ping Earth',cmd:'docker exec custom ping '+ec},{label:'View logs',cmd:logsCmd}],
   };
 }
 function renderCommands() {
@@ -721,11 +736,43 @@ async function fetchStatus() {
     if (d.moon_ip)   { nodeIPs.moon = d.moon_ip; const el=document.getElementById('ip-moon'); if(el) el.textContent = d.moon_ip; }
     if (d.custom_ip) { nodeIPs.custom = d.custom_ip; const el=document.getElementById('ip-custom'); if(el) el.textContent = d.custom_ip; }
     if (d.mode) runMode = d.mode;
-    // Update origin-select labels with current IPs
+    // Per-link Earth IPs (fall back to primary EARTH_IP)
+    nodeIPs.earthMars   = d.earth_ip_mars   || nodeIPs.earth;
+    nodeIPs.earthMoon   = d.earth_ip_moon   || nodeIPs.earth;
+    nodeIPs.earthCustom = d.earth_ip_custom || nodeIPs.earth;
+    document.getElementById('earth-ip-mars').textContent   = nodeIPs.earthMars;
+    document.getElementById('earth-ip-moon').textContent   = nodeIPs.earthMoon;
+    document.getElementById('earth-ip-custom').textContent = nodeIPs.earthCustom;
+    // Node labels (e.g. MOON → LUNAR)
+    if (d.mars_label) {
+      document.getElementById('label-mars').textContent = d.mars_label;
+      document.querySelectorAll('.lbl-mars').forEach(el => el.textContent = titleCase(d.mars_label));
+      const sl = document.getElementById('mars-section-label'); if (sl) sl.textContent = titleCase(d.mars_label)+' Link';
+    }
+    if (d.moon_label) {
+      document.getElementById('label-moon').textContent = d.moon_label;
+      document.querySelectorAll('.lbl-moon').forEach(el => el.textContent = titleCase(d.moon_label));
+      const sl = document.getElementById('moon-section-label'); if (sl) sl.textContent = titleCase(d.moon_label)+' Link';
+    }
+    if (d.custom_label) {
+      document.getElementById('label-custom').textContent = d.custom_label;
+    }
+    // Hide Custom entirely if HIDE_CUSTOM env set on server
+    if (d.hide_custom) {
+      ['vis-custom-link','custom-section','settings-custom','opt-custom'].forEach(id=>{
+        const el=document.getElementById(id); if(el) el.style.display='none';
+      });
+      // Filter buttons (Activity Log + Packet Capture) for Custom
+      document.querySelectorAll('[data-cat="custom"],[data-pkt="custom"]').forEach(el => el.style.display='none');
+      // Custom entries in the ramp-link select
+      const sel = document.getElementById('ramp-link');
+      if (sel) Array.from(sel.options).forEach(o=>{ if(o.value.endsWith('custom')) o.style.display='none'; });
+    }
+    // Update origin-select labels with current IPs and labels
     document.getElementById('opt-earth').textContent = 'Earth ('+nodeIPs.earth+')';
-    document.getElementById('opt-mars').textContent  = 'Mars ('+nodeIPs.mars+')';
-    document.getElementById('opt-moon').textContent  = 'Moon ('+nodeIPs.moon+')';
-    document.getElementById('opt-custom').textContent= 'Custom ('+nodeIPs.custom+')';
+    document.getElementById('opt-mars').textContent  = (d.mars_label||'Mars')+' ('+nodeIPs.mars+')';
+    document.getElementById('opt-moon').textContent  = (d.moon_label||'Moon')+' ('+nodeIPs.moon+')';
+    document.getElementById('opt-custom').textContent= (d.custom_label||'Custom')+' ('+nodeIPs.custom+')';
 
     // Mars
     document.getElementById('delay-mars').innerHTML = fmtD(d.delay_to_mars);
