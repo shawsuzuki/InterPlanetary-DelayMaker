@@ -77,6 +77,7 @@ type Status struct {
 	MoonLabel     string `json:"moon_label"`
 	CustomLabel   string `json:"custom_label"`
 	HideCustom    bool   `json:"hide_custom"` // if true, dashboard hides Custom section entirely
+	HideMoon      bool   `json:"hide_moon"`   // if true, dashboard hides Moon section entirely
 	Mode          string `json:"mode"`        // "docker" or "bare-metal"
 	// Packet positions: progress + type for visualization dots
 	PktsToMars     []PacketDot `json:"pkts_to_mars"`
@@ -173,6 +174,7 @@ func main() {
 	moonLabel := envOr("MOON_LABEL", "MOON")
 	customLabel := envOr("CUSTOM_LABEL", "CUSTOM")
 	hideCustom := os.Getenv("HIDE_CUSTOM") == "1" || os.Getenv("HIDE_CUSTOM") == "true"
+	hideMoon := os.Getenv("HIDE_MOON") == "1" || os.Getenv("HIDE_MOON") == "true"
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
 	ctx := context.Background()
@@ -218,6 +220,7 @@ func main() {
 		status.MoonLabel = moonLabel
 		status.CustomLabel = customLabel
 		status.HideCustom = hideCustom
+		status.HideMoon = hideMoon
 
 		status.QueueToMars = rdb.ZCard(ctx, queueToMars).Val()
 		status.QueueToEarth = rdb.ZCard(ctx, queueToEarth).Val()

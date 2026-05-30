@@ -40,6 +40,7 @@ services:
       - "8080:8080"
     environment:
       - REDIS_ADDR=redis:6379
+      - HIDE_MOON=${HIDE_MOON:-0}    # set to 1 to hide the Moon link (e.g. interop display)
     depends_on:
       redis:
         condition: service_healthy

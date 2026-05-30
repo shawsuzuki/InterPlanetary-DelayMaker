@@ -66,19 +66,21 @@
     font-size: 0.55em; color: #4a9eff; padding-right: 4px;
     font-variant-numeric: tabular-nums;
   }
-  .vis-track { flex: 1; height: 54px; position: relative; margin: 0 10px; }
+  .vis-track { flex: 1; height: 58px; position: relative; margin: 0 10px; }
   .vis-track-line { position: absolute; left: 0; right: 0; height: 1px; background: #2a3a4a; }
-  .vis-track-line.fwd-line { top: 14px; }
-  .vis-track-line.rev-line { top: 40px; }
+  .vis-track-line.fwd-line { top: 21px; }
+  .vis-track-line.rev-line { top: 37px; }
   .vis-lane { position: absolute; left: 0; right: 0; height: 10px; overflow: hidden; }
-  .vis-lane.fwd { top: 9px; }
-  .vis-lane.rev { top: 35px; }
+  .vis-lane.fwd { top: 16px; }
+  .vis-lane.rev { top: 32px; }
+  /* Delay labels sit ABOVE the fwd lane and BELOW the rev lane so in-flight
+     packet dots are never hidden behind the (opaque) label background. */
   .vis-delay-label {
     position: absolute; left: 50%; transform: translate(-50%, -50%);
     font-size: 0.55em; color: #5a7a9a; background: #141b2a; padding: 0 5px; white-space: nowrap;
   }
-  .vis-delay-label.fwd-label { top: 14px; }
-  .vis-delay-label.rev-label { top: 40px; }
+  .vis-delay-label.fwd-label { top: 5px; }
+  .vis-delay-label.rev-label { top: 53px; }
 
   /* Packet dots: color by protocol type */
   .pkt {
@@ -768,6 +770,14 @@ async function fetchStatus() {
       const sel = document.getElementById('ramp-link');
       if (sel) Array.from(sel.options).forEach(o=>{ if(o.value.endsWith('custom')) o.style.display='none'; });
     }
+    // Hide Moon entirely if HIDE_MOON env set on server (e.g. interop display)
+    if (d.hide_moon) {
+      ['vis-moon-link','moon-section','settings-moon','opt-moon'].forEach(id=>{
+        const el=document.getElementById(id); if(el) el.style.display='none';
+      });
+      // Filter buttons (Activity Log + Packet Capture) for Moon
+      document.querySelectorAll('[data-cat="moon"],[data-pkt="moon"]').forEach(el => el.style.display='none');
+    }
     // Update origin-select labels with current IPs and labels
     document.getElementById('opt-earth').textContent = 'Earth ('+nodeIPs.earth+')';
     document.getElementById('opt-mars').textContent  = (d.mars_label||'Mars')+' ('+nodeIPs.mars+')';
@@ -782,8 +792,8 @@ async function fetchStatus() {
     updateVis('mars', d.delay_to_mars, d.delay_to_earth, d.pkts_to_mars, d.pkts_to_earth);
     updateMarsToggle(d.delay_to_mars);
 
-    // Moon
-    if (d.moon_enabled && !moonEnabled) {
+    // Moon (skip entirely when hidden so cards/commands stay suppressed)
+    if (d.moon_enabled && !d.hide_moon && !moonEnabled) {
       moonEnabled = true;
       ['moon-section','vis-moon-link','settings-moon'].forEach(id => document.getElementById(id).classList.add('visible'));
     }

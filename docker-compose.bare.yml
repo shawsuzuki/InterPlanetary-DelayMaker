@@ -66,6 +66,7 @@ services:
       - MOON_IP=${MOON_IP:-192.168.1.2}
       - MOON_LABEL=${MOON_LABEL:-LUNAR}
       - HIDE_CUSTOM=${HIDE_CUSTOM:-1}
+      - HIDE_MOON=${HIDE_MOON:-1}    # interop display: hide Moon by default; set HIDE_MOON=0 to re-enable
     depends_on:
       redis:
         condition: service_healthy

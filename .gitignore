@@ -1,2 +1,6 @@
 .env
 .claude/
+
+# Go build artifacts
+dashboard/dashboard
+delaybox/delaybox
