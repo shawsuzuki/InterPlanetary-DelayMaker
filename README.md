@@ -187,6 +187,46 @@ journalctl -u delaybox -f           # ログ追跡
 
 **ダッシュボード**: `http://<B機mgmt-IP>:8080` （例: http://192.168.100.4:8080）
 
+### コールドスタート（電源オフ → 再開の最短手順）
+
+展示の朝など、一度電源を落としたあとの復帰手順。初回の `setup.sh` + `install-systemd.sh` が済んでいれば、基本は **電源を入れて待つだけ**。
+
+1. **3台の電源を入れる**（Earth / Delay box(B機) / Mars）。B機は systemd が自動で NIC 再設定＋コンテナ起動するので **30〜60秒待つ**。
+
+2. **B機が起動したか確認**
+   ```bash
+   sudo systemctl status delaybox                  # active なら OK
+   docker compose -f docker-compose.bare.yml ps    # redis / delaybox / dashboard が Up
+   ```
+
+3. **遅延値を確認**（再起動すると `.env` の初期値が再適用され、キューは空で始まる）
+   ```bash
+   docker exec redis redis-cli MGET config:delay_to_mars config:delay_to_earth
+   # 想定値（例: "240" "240"）ならOK。違えば .env を直して  sudo systemctl restart delaybox
+   ```
+   > 恒久的なデフォルトは `.env` の `DELAY_EARTH_TO_MARS` / `DELAY_MARS_TO_EARTH`。Redis CLI やダッシュボードでの変更は「実行中の値」なので、再起動すると `.env` 値に戻る。
+
+4. **Earth / Mars のIP**（Netplan等で永続化済みなら不要。していなければ再設定）
+   ```bash
+   sudo ip addr add 192.168.2.1/24 dev <NIC> && sudo ip link set <NIC> up   # Earth
+   sudo ip addr add 192.168.2.2/24 dev <NIC> && sudo ip link set <NIC> up   # Mars
+   ```
+
+5. **static ARP**（遅延が60秒超なら必須。再起動で ARP テーブルは消える）
+   ARP固定をサービス化していれば各ホスト起動時に自動投入される。手動なら相手のMACを入れる（MACは `ip link show <NIC>` で確認）:
+   ```bash
+   sudo ip neigh replace 192.168.2.2 lladdr <MarsのMAC>  dev <NIC> nud permanent   # Earth で
+   sudo ip neigh replace 192.168.2.1 lladdr <EarthのMAC> dev <NIC> nud permanent   # Mars で
+   ```
+
+6. **疎通確認**
+   ```bash
+   docker exec redis redis-cli ZCARD delay:to_mars     # パケットが積まれていくか
+   ```
+   ダッシュボード: `http://192.168.100.4:8080`
+
+> 自動起動が効いていない／手動で上げたいときは `sudo systemctl start delaybox`（systemd未導入なら `sudo ./bare-metal/boot.sh`）。
+
 ### 遅延時間の変更
 
 #### 方法1: ダッシュボード (推奨)
